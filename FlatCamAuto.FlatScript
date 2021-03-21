@@ -20,6 +20,9 @@ set kicad_name "migacz"
 # << PROJECT PATH >>
 set kicad_path "/mnt/kicads/4Tom"
 
+# << OUTPUT PATH, if empty - equals to PROJECT PATH >>
+set output_path "/mnt/Frezarra"
+
 # PROCESSING DETAILS
 set track_z_cut -0.05
 set annot_z_cut -0.05
@@ -53,11 +56,13 @@ while {$i < $l_obj} {
  incr i
 }
 
-# PROJECT'S GERBERS PATH HERE
+# SET UP PATHS AND FILENAMES
 set kicad_gerber_path "$kicad_path/$kicad_name/gerber"; list
-
-puts $kicad_gerber_path 
- 
+if {$output_path != ""} {
+   set flatcam_output_path "$output_path/$kicad_name"
+} else  {
+   set flatcam_output_path "$kicad_gerber_path"
+} 
 set gerber_front_copper "$kicad_gerber_path/$kicad_name-F_Cu.gbr"; list
 set gerber_back_copper "$kicad_gerber_path/$kicad_name-B_Cu.gbr"; list
 set gerber_cutout "$kicad_gerber_path/$kicad_name-Edge_Cuts.gbr"; list
@@ -76,26 +81,28 @@ open_excellon $gerber_drills_pth -outname Holes
 #1. ISOLATE FRONT COPPER
 isolate "FrontCopper" -dia 0.1479 -passes 2 -overlap 0.4 -combine 1 -outname "FrontCopper_iso"
 cncjob "FrontCopper_iso" -dia 0.1 -z_cut $track_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontCopper_iso_cnc"
-write_gcode "FrontCopper_iso_cnc" "$kicad_gerber_path/1_45V_FrontCopper.nc"
+write_gcode "FrontCopper_iso_cnc" "$flatcam_output_path/1_45V_FrontCopper.nc"
  
 #1a. ENGRAVE FRONT ANNOTATIONS with same tool (negative/carved-out text on copper) - Eco1_User layer
 if {[lsearch [get_names] FrontAnnot]>=0} {
     paint "FrontAnnot" -tooldia 0.1 -offset 0 -method 'seed' -all -outname "FrontAnnot_paint"
     cncjob "FrontAnnot_paint" -dia 0.1 -z_cut $annot_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontAnnot_paint_cnc"
-    write_gcode "FrontAnnot_paint_cnc" "$kicad_gerber_path/1a_45V_FrontAnnot.nc"
+    write_gcode "FrontAnnot_paint_cnc" "$flatcam_output_path/1a_45V_FrontAnnot.nc"
 }
 
 #2. CREATE ALIGNMENT DRILLS
 if {[lsearch [get_names] CutOut]>=0} {
+if {[lsearch [get_names] BackCopper]>=0} {
     aligndrill "CutOut" -axis $mirror_axis -box "CutOut" -dia $align_holes_dia -grid 1 -gridoffset 1 -minoffset 1 -outname "AlignmentDrills"
     drillcncjob "AlignmentDrills" -drilled_dias $align_holes_dia -diatol 5 -drillz $align_holes_depth -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "AlignmentDrills_cnc"
-    write_gcode "AlignmentDrills_cnc" "$kicad_gerber_path/2_1D5_AlignmentDrills.nc"
+    write_gcode "AlignmentDrills_cnc" "$flatcam_output_path/2_1D5_AlignmentDrills.nc"
+}
 }
 
 #3. DRILL SHALLOW HOLES on FRONT copper (those with 0.3mm, those of 0.35mm are drilled on BACK)
 if {[lsearch [get_names] Holes]>=0} {
     drillcncjob "Holes" -drilled_dias $shallow_hole_diam_front -diatol 5 -drillz $shallow_hole_depth -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "FrontShallowDrills_cnc"
-    write_gcode "FrontShallowDrills_cnc" "$kicad_gerber_path/3_0D6_FrontShallowDrills.nc"
+    write_gcode "FrontShallowDrills_cnc" "$flatcam_output_path/3_0D6_FrontShallowDrills.nc"
 }
 
 # DO WE HAVE BACKCOPPER ?? - ie. two sided board requested
@@ -107,25 +114,25 @@ if {[lsearch [get_names] BackCopper]>=0} {
     mirror "BackCopper" -box "CutOut" -axis $mirror_axis
     isolate "BackCopper" -dia 0.1479 -passes 2 -overlap 0.4 -combine 1 -outname "BackCopper_iso"
     cncjob "BackCopper_iso" -dia 0.1 -z_cut $track_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackCopper_iso_cnc"
-    write_gcode "BackCopper_iso_cnc" "$kicad_gerber_path/4M_45V_BackCopper.nc"
+    write_gcode "BackCopper_iso_cnc" "$flatcam_output_path/4M_45V_BackCopper.nc"
 
 #4a. MIRROR & PAINT BACK ANNOTATIONS (Eco2_User) layer
 if {[lsearch [get_names] BackAnnot]>=0} {
     mirror "BackAnnot" -box "CutOut" -axis $mirror_axis
     paint "BackAnnot" -tooldia 0.1 -offset 0 -method 'standard' -all -outname "BackAnnot_paint"
     cncjob "BackAnnot_paint" -dia 0.1 -z_cut $annot_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackAnnot_paint_cnc"
-    write_gcode "BackAnnot_paint_cnc" "$kicad_gerber_path/5M_45V_BackAnnot.nc"
+    write_gcode "BackAnnot_paint_cnc" "$flatcam_output_path/5M_45V_BackAnnot.nc"
 }
 
 #5. MIRROR HOLES, DRILL 1.0mm then 0.6mm then SHALLOW 0.6mm on BACK (coded as 0.35mm)
 if {[lsearch [get_names] Holes]>=0} {
     mirror "Holes" -box "CutOut" -axis $mirror_axis
     drillcncjob "Holes" -drilled_dias 1.0 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
-    write_gcode "Holes1.0mm_cnc" "$kicad_gerber_path/6M_1D0_Holes1mm0.nc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/6M_1D0_Holes1mm0.nc"
     drillcncjob "Holes" -drilled_dias 0.6 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.6mm_cnc"
-    write_gcode "Holes0.6mm_cnc" "$kicad_gerber_path/7M_0D6_Holes0mm6.nc"
+    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/7M_0D6_Holes0mm6.nc"
     drillcncjob "Holes" -drilled_dias $shallow_hole_diam_back -diatol 5 -drillz $shallow_hole_depth -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "BackShallowDrills_cnc"
-    write_gcode "BackShallowDrills_cnc" "$kicad_gerber_path/8M_0D6_BackShallowDrills.nc"
+    write_gcode "BackShallowDrills_cnc" "$flatcam_output_path/8M_0D6_BackShallowDrills.nc"
 }
 
 #6. CUTOUT 
@@ -133,7 +140,7 @@ if {[lsearch [get_names] CutOut]>=0} {
     mirror "CutOut" -box "CutOut" -axis $mirror_axis
     geocutout "CutOut" -dia 1.5 -gapsize 0 -gaps "lr" -outname "CutOut_geo"
     cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
-    write_gcode "CutOut_geo_cnc" "$kicad_gerber_path/9M_1F5_CutOut.nc"
+    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/9M_1F5_CutOut.nc"
 }
 } else {  # if BackCopper object exist ?
 
@@ -141,18 +148,18 @@ if {[lsearch [get_names] CutOut]>=0} {
 
  if {[lsearch [get_names] Holes]>=0} {
     drillcncjob "Holes" -drilled_dias 1.0 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
-    write_gcode "Holes1.0mm_cnc" "$kicad_gerber_path/6M_1D0_Holes1mm0.nc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/6M_1D0_Holes1mm0.nc"
     drillcncjob "Holes" -drilled_dias 0.6 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.6mm_cnc"
-    write_gcode "Holes0.6mm_cnc" "$kicad_gerber_path/7M_0D6_Holes0mm6.nc"
+    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/7M_0D6_Holes0mm6.nc"
     drillcncjob "Holes" -drilled_dias $shallow_hole_diam_back -diatol 5 -drillz $shallow_hole_depth -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "BackShallowDrills_cnc"
-    write_gcode "BackShallowDrills_cnc" "$kicad_gerber_path/8M_0D6_BackShallowDrills.nc"
+    write_gcode "BackShallowDrills_cnc" "$flatcam_output_path/8M_0D6_BackShallowDrills.nc"
 }
 
 #6. CUTOUT 
 if {[lsearch [get_names] CutOut]>=0} {
     geocutout "CutOut" -dia 1.5 -gapsize 0 -gaps "lr" -outname "CutOut_geo"
     cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
-    write_gcode "CutOut_geo_cnc" "$kicad_gerber_path/9M_1F5_CutOut.nc"
+    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/9M_1F5_CutOut.nc"
 }
 }
 
