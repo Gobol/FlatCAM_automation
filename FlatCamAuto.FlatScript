@@ -11,16 +11,18 @@
 # mirror_axis = mirror axis for two sided boards (Y = left<->right, X = top<->bottom) 
 # shallow_hole_diam_front = diameter of holes (excellon) which will be drilled shallow from FRONT side of PCB (up to shallow_hole_depth) - useful for some PCB stuff I made
 # shallow_hole_diam_back = the same, but BACK side of PCB
+# thruhole_z - depth of holes 
+# cutout_z_cut - depth of cutout (should equal PCB thickness+0.1mm)
 
-# DEFINE PROJECT NAME AND PATH (without trailing slash)
+# DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
 
-# << PROJECT NAME (FOLDER) >>
+# << PROJECT NAME (DIRECTORY NAME) >>
 set kicad_name "migacz"
 
 # << PROJECT PATH >>
 set kicad_path "/mnt/kicads/4Tom"
 
-# << OUTPUT PATH, if empty - equals to PROJECT PATH >>
+# << OUTPUT PATH, if empty - equals to PROJECT PATH, if doesn't exist - CREATE ONE >>
 set output_path "/mnt/Frezarra"
 
 # PROCESSING DETAILS
@@ -60,6 +62,7 @@ while {$i < $l_obj} {
 set kicad_gerber_path "$kicad_path/$kicad_name/gerber"; list
 if {$output_path != ""} {
    set flatcam_output_path "$output_path/$kicad_name"
+   file mkdir $flatcam_output_path
 } else  {
    set flatcam_output_path "$kicad_gerber_path"
 } 
