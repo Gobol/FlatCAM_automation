@@ -160,7 +160,7 @@ if {[lsearch [get_names] CutOut]>=0} {
 
 #6. CUTOUT 
 if {[lsearch [get_names] CutOut]>=0} {
-    geocutout "CutOut" -dia 1.5 -gapsize 0 -gaps "lr" -outname "CutOut_geo"
+    geocutout "CutOut" -dia 1.5 -gapsize -2 -gaps "lr" -outname "CutOut_geo"
     cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
     write_gcode "CutOut_geo_cnc" "$flatcam_output_path/9M_1F5_CutOut.nc"
 }
