@@ -17,16 +17,17 @@
 # DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
 
 # << PROJECT NAME (DIRECTORY NAME) >>
-set kicad_name "migacz"
+set kicad_name "rflink_shield"
 
 # << PROJECT PATH >>
-set kicad_path "/mnt/kicads/4Tom"
+set kicad_path "/mnt/code/GoboHome/"
 
 # << OUTPUT PATH, if empty - equals to PROJECT PATH, if doesn't exist - CREATE ONE >>
 set output_path "/mnt/Frezarra"
 
 # PROCESSING DETAILS
-set track_z_cut -0.05
+set track_z_cut -0.07
+set isolation_overlap 0.5
 set annot_z_cut -0.05
 set track_xy_feed 300
 set z_feedrate 100	
@@ -82,7 +83,7 @@ open_gerber $gerber_front_annot -outname FrontAnnot
 open_excellon $gerber_drills_pth -outname Holes
 
 #1. ISOLATE FRONT COPPER
-isolate "FrontCopper" -dia 0.1479 -passes 2 -overlap 0.4 -combine 1 -outname "FrontCopper_iso"
+isolate "FrontCopper" -dia 0.1479 -passes 2 -overlap $isolation_overlap -combine 1 -outname "FrontCopper_iso"
 cncjob "FrontCopper_iso" -dia 0.1 -z_cut $track_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontCopper_iso_cnc"
 write_gcode "FrontCopper_iso_cnc" "$flatcam_output_path/1_45V_FrontCopper.nc"
  
@@ -115,7 +116,7 @@ if {[lsearch [get_names] Holes]>=0} {
 #4. MIRROR & ISOLATE BACK COPPER
 if {[lsearch [get_names] BackCopper]>=0} {
     mirror "BackCopper" -box "CutOut" -axis $mirror_axis
-    isolate "BackCopper" -dia 0.1479 -passes 2 -overlap 0.4 -combine 1 -outname "BackCopper_iso"
+    isolate "BackCopper" -dia 0.1479 -passes 2 -overlap $isolation_overlap -combine 1 -outname "BackCopper_iso"
     cncjob "BackCopper_iso" -dia 0.1 -z_cut $track_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackCopper_iso_cnc"
     write_gcode "BackCopper_iso_cnc" "$flatcam_output_path/4M_45V_BackCopper.nc"
 
@@ -130,12 +131,20 @@ if {[lsearch [get_names] BackAnnot]>=0} {
 #5. MIRROR HOLES, DRILL 1.0mm then 0.6mm then SHALLOW 0.6mm on BACK (coded as 0.35mm)
 if {[lsearch [get_names] Holes]>=0} {
     mirror "Holes" -box "CutOut" -axis $mirror_axis
-    drillcncjob "Holes" -drilled_dias 1.0 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
-    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/6M_1D0_Holes1mm0.nc"
-    drillcncjob "Holes" -drilled_dias 0.6 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.6mm_cnc"
-    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/7M_0D6_Holes0mm6.nc"
+    
+    drillcncjob "Holes" -drilled_dias 1.2 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.2mm_cnc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/6M_1D2_Holes1mm2.nc"
+    drillcncjob "Holes" -drilled_dias 1.0 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/7M_1D0_Holes1mm0.nc"
+    drillcncjob "Holes" -drilled_dias 0.8 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.8mm_cnc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/8M_0D8_Holes0mm8.nc"
+    drillcncjob "Holes" -drilled_dias 0.6 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.6mm_cnc"
+    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/9M_0D6_Holes0mm6.nc"
+    drillcncjob "Holes" -drilled_dias 0.5 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.5mm_cnc"
+    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/10M_0D5_Holes0mm5.nc"
+
     drillcncjob "Holes" -drilled_dias $shallow_hole_diam_back -diatol 5 -drillz $shallow_hole_depth -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "BackShallowDrills_cnc"
-    write_gcode "BackShallowDrills_cnc" "$flatcam_output_path/8M_0D6_BackShallowDrills.nc"
+    write_gcode "BackShallowDrills_cnc" "$flatcam_output_path/11M_0D6_BackShallowDrills.nc"
 }
 
 #6. CUTOUT 
@@ -143,26 +152,33 @@ if {[lsearch [get_names] CutOut]>=0} {
     mirror "CutOut" -box "CutOut" -axis $mirror_axis
     geocutout "CutOut" -dia 1.5 -gapsize 0 -gaps "lr" -outname "CutOut_geo"
     cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
-    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/9M_1F5_CutOut.nc"
+    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/12M_1F5_CutOut.nc"
 }
 } else {  # if BackCopper object exist ?
 
 # NO BACKCOPPER object - single sided version 
 
  if {[lsearch [get_names] Holes]>=0} {
-    drillcncjob "Holes" -drilled_dias 1.0 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
-    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/6M_1D0_Holes1mm0.nc"
-    drillcncjob "Holes" -drilled_dias 0.6 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.6mm_cnc"
-    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/7M_0D6_Holes0mm6.nc"
+    drillcncjob "Holes" -drilled_dias 1.2 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.2mm_cnc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/6M_1D2_Holes1mm2.nc"
+    drillcncjob "Holes" -drilled_dias 1.0 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/7M_1D0_Holes1mm0.nc"
+    drillcncjob "Holes" -drilled_dias 0.8 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.8mm_cnc"
+    write_gcode "Holes1.0mm_cnc" "$flatcam_output_path/8M_0D8_Holes0mm8.nc"
+    drillcncjob "Holes" -drilled_dias 0.6 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.6mm_cnc"
+    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/9M_0D6_Holes0mm6.nc"
+    drillcncjob "Holes" -drilled_dias 0.5 -diatol 10 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes0.5mm_cnc"
+    write_gcode "Holes0.6mm_cnc" "$flatcam_output_path/10M_0D5_Holes0mm5.nc"
+    
     drillcncjob "Holes" -drilled_dias $shallow_hole_diam_back -diatol 5 -drillz $shallow_hole_depth -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "BackShallowDrills_cnc"
-    write_gcode "BackShallowDrills_cnc" "$flatcam_output_path/8M_0D6_BackShallowDrills.nc"
+    write_gcode "BackShallowDrills_cnc" "$flatcam_output_path/11M_0D6_BackShallowDrills.nc"
 }
 
 #6. CUTOUT 
 if {[lsearch [get_names] CutOut]>=0} {
     geocutout "CutOut" -dia 1.5 -gapsize -2 -gaps "lr" -outname "CutOut_geo"
     cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
-    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/9M_1F5_CutOut.nc"
+    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/12M_1F5_CutOut.nc"
 }
 }
 
