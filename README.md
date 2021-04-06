@@ -30,16 +30,16 @@ Parameters:
 - track_xy_feed 300   - engraving speed in mm/s
 - z_feedrate 100	    - z_plunge speed in mm/s when engraving
 - mirror_axis "Y"     - two-sided board mirror axis (X=up/down or Y=left/right)
-set shallow_hole_diam_front 0.3
-set shallow_hole_diam_back 0.35
-set shallow_hole_depth -0.5
-set thruhole_z -1.8
-set cutout_z_cut -1.8
-set cutout_cut_per_pass 0.9
-set cutout_feedrate_xy 120
-set cutout_feedrate_z 80
-set align_holes_depth -6
-set align_holes_dia 1.5
+- shallow_hole_diam_front 0.3	- diameter-encoded shallow holes - drilled to 0.5mm depth with 0.6mm drill typically 
+- shallow_hole_diam_back 0.35	- the same, just for back layer of PCB 
+- shallow_hole_depth -0.5	- how deep drill the shallow holes 
+- thruhole_z -1.8	- how deep to drill through-holes (typically PCB thickness + 0.1mm)  
+- cutout_z_cut -1.8	- the same for cutout job 
+- cutout_cut_per_pass 0.9 	- for multipass cutout - partial pass cut depth 
+- cutout_feedrate_xy 120	- how fast to cut out 
+- cutout_feedrate_z 80		- z-plunge speed for cutout 
+- align_holes_depth -6		- how deep to drill alignment holes, much deeper than usually - adjust to your spoil board
+- align_holes_dia 1.5		- alignment holes diameter 
 - spindle_rpm 1000    - spindle rotational speed
 - spindle_dwell 2     - spindle spin-up wait time before job
 
