@@ -218,16 +218,16 @@ if {[lsearch [get_names] CutOut]>=0} {
 }
 
 #7. FRONT MASK (best with floating engraver - to remove UV mask @ pads)
-if {[lsearch] [get_names] FrontMask]>=0} {
-    paint "FrontMask" -tooldia $mask_vbit_tip -offset 0 -method $mask_method -all -outname "FrontMask_paint"
+if {[lsearch [get_names] FrontMask]>=0} {
+    paint "FrontMask" -tooldia $mask_vbit_tip -offset 0 -method combo -all -outname "FrontMask_paint"
     cncjob "FrontMask_paint" -dia $mask_vbit_tip -z_cut $mask_z_cut -z_move $mask_z_travel -feedrate $mask_xy_feed -feedrate_z $mask_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontMask_paint_cnc"
     write_gcode "FrontMask_paint_cnc" "$flatcam_output_path/12_FET_45V_FrontMask.nc"
 }
 
 #8. BACK MASK 
-if {[lsearch] [get_names] BackMask]>=0} {
+if {[lsearch [get_names] BackMask]>=0} {
     mirror "BackMask" -box "CutOut" -axis $mirror_axis
-    paint "BackMask" -tooldia $mask_vbit_tip -offset 0 -method $mask_method -all -outname "BackMask_paint"
+    paint "BackMask" -tooldia $mask_vbit_tip -offset 0 -method combo -all -outname "BackMask_paint"
     cncjob "BackMask_paint" -dia $mask_vbit_tip -z_cut $mask_z_cut -z_move $mask_z_travel -feedrate $mask_xy_feed -feedrate_z $mask_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackMask_paint_cnc"
     write_gcode "BackMask_paint_cnc" "$flatcam_output_path/13_FET_45V_BackMask.nc"
 }
