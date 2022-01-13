@@ -21,7 +21,7 @@
 # DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
 
 # << PROJECT NAME (DIRECTORY NAME) >>
-set kicad_name "at644_devbrd"
+set kicad_name "mys_t3227_rfm69_4chsynclight"
 
 # << PROJECT PATH >>
 set kicad_path "/mnt/code/GoboHome"
@@ -34,13 +34,13 @@ set output_path "/mnt/Frezarra/"
 # vbit 60/0.1 => z_cut =-0.03, iso_passes=1
 
 # PROCESSING DETAILS
-set track_z_cut -0.03
+set track_z_cut -0.035
 set vbit_angle 60
 set vbit_tip 0.1
 set vbit_angle_rad [ expr { $vbit_angle*3.14159/180 } ]
 set vbit_iso_width [ expr { $vbit_tip + -$track_z_cut * [ tcl::mathfunc::tan $vbit_angle_rad ] } ]
-set iso_passes 3
-set isolation_overlap 0.1
+set iso_passes 2
+set isolation_overlap 0.8
 set annot_z_cut -0.05
 set track_xy_feed 400
 set z_feedrate 160	
@@ -61,6 +61,15 @@ set align_holes_dia 1.5
 
 set spindle_rpm 1000
 set spindle_dwell 2
+
+set mask_xy_feed 600
+set mask_z_feed 150
+set mask_z_travel 2
+set mask_z_cut 0
+set mask_overlap 0.2
+set mask_vbit_tip 0.1
+set mask_method "Combo"
+
 
 
 # CLEAR PROJECT but do not delete script ;)
@@ -83,13 +92,20 @@ if {$output_path != ""} {
    file mkdir $flatcam_output_path
 } else  {
    set flatcam_output_path "$kicad_gerber_path"
+# DELETE PREVIOUS OUTPUT FILES FROM OUTPUT_PATH
+   file delete -force -- $flatcam_output_path
+   file mkdir $flatcam_output_path
 } 
+
+
 set gerber_front_copper "$kicad_gerber_path/$kicad_name-F_Cu.gbr"; list
 set gerber_back_copper "$kicad_gerber_path/$kicad_name-B_Cu.gbr"; list
 set gerber_cutout "$kicad_gerber_path/$kicad_name-Edge_Cuts.gbr"; list
 set gerber_drills_pth "$kicad_gerber_path/$kicad_name-PTH.drl"; list
 set gerber_front_annot "$kicad_gerber_path/$kicad_name-Eco1_User.gbr"; list
 set gerber_back_annot "$kicad_gerber_path/$kicad_name-Eco2_User.gbr"; list
+set gerber_front_mask "$kicad_gerber_path/$kicad_name-F_Mask.gbr"; list 
+set gerber_back_mask "$kicad_gerber_path/$kicad_name-B_Mask.gbr"; list 
 
 #OPEN SOURCE FILES 
 open_gerber $gerber_front_copper -outname FrontCopper
@@ -97,6 +113,8 @@ open_gerber $gerber_back_copper -outname BackCopper
 open_gerber $gerber_cutout -outname CutOut
 open_gerber $gerber_back_annot -outname BackAnnot
 open_gerber $gerber_front_annot -outname FrontAnnot
+open_gerber $gerber_front_mask -outname FrontMask
+open_gerber $gerber_back_mask -outname BackMask
 open_excellon $gerber_drills_pth -outname Holes
 
 #temporarily set mirrored flag as ""
@@ -171,6 +189,12 @@ set mirrored "M"
 
 #5. HOLES
  if {[lsearch [get_names] Holes]>=0} {
+    drillcncjob "Holes" -drilled_dias 1.9 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 50 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.9mm_cnc"
+    write_gcode "Holes1.9mm_cnc" "$flatcam_output_path/6${mirrored}_1D2_Holes1mm9.nc"
+    drillcncjob "Holes" -drilled_dias 1.7 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 50 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.7mm_cnc"
+    write_gcode "Holes1.7mm_cnc" "$flatcam_output_path/6${mirrored}_1D2_Holes1mm7.nc"
+    drillcncjob "Holes" -drilled_dias 1.5 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 60 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.5mm_cnc"
+    write_gcode "Holes1.5mm_cnc" "$flatcam_output_path/6${mirrored}_1D5_Holes1mm5.nc"
     drillcncjob "Holes" -drilled_dias 1.2 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.2mm_cnc"
     write_gcode "Holes1.2mm_cnc" "$flatcam_output_path/6${mirrored}_1D2_Holes1mm2.nc"
     drillcncjob "Holes" -drilled_dias 1.0 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.0mm_cnc"
@@ -191,6 +215,21 @@ if {[lsearch [get_names] CutOut]>=0} {
     geocutout "CutOut" -dia 1.5 -gapsize 0 -gaps "none" -outname "CutOut_geo"
     cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
     write_gcode "CutOut_geo_cnc" "$flatcam_output_path/12${mirrored}_1F5_CutOut.nc"
+}
+
+#7. FRONT MASK (best with floating engraver - to remove UV mask @ pads)
+if {[lsearch] [get_names] FrontMask]>=0} {
+    paint "FrontMask" -tooldia $mask_vbit_tip -offset 0 -method $mask_method -all -outname "FrontMask_paint"
+    cncjob "FrontMask_paint" -dia $mask_vbit_tip -z_cut $mask_z_cut -z_move $mask_z_travel -feedrate $mask_xy_feed -feedrate_z $mask_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontMask_paint_cnc"
+    write_gcode "FrontMask_paint_cnc" "$flatcam_output_path/12_FET_45V_FrontMask.nc"
+}
+
+#8. BACK MASK 
+if {[lsearch] [get_names] BackMask]>=0} {
+    mirror "BackMask" -box "CutOut" -axis $mirror_axis
+    paint "BackMask" -tooldia $mask_vbit_tip -offset 0 -method $mask_method -all -outname "BackMask_paint"
+    cncjob "BackMask_paint" -dia $mask_vbit_tip -z_cut $mask_z_cut -z_move $mask_z_travel -feedrate $mask_xy_feed -feedrate_z $mask_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackMask_paint_cnc"
+    write_gcode "BackMask_paint_cnc" "$flatcam_output_path/13_FET_45V_BackMask.nc"
 }
 
 plot_all 
