@@ -5,7 +5,40 @@
 #   |--| |__|  |  [__] |\/| |--|  |  | [__] | \|
 #                                               
 #                                               
-                                                        
+        
+# HOWTO:
+# 1. Create project in KiCAD 
+# 2. make PCB ( set auxillary origin point )
+# 3. plot PCB with layers using auxillary axis origin point and "Do not tent vias" : 
+#  - minimal: F.Cu, Edge.Cuts
+#  - available: 
+#         * F.Cu
+#         * B.Cu
+#         * F_Mask, B_Mask, Eco1.User (front annotations), Eco2.User (back annotations), Edge.Cuts
+# 4. Generate drills file in KiCAD (use auxillary axis)
+# 5. Open FlatCAM
+# 6. Load this script
+# 7. Setup paths below (input & output)
+# 8. Adjust cuts/overlaps & other params - according to your/cnc needs
+# 9. Open gcodes in OpenCNCPilot or your fav cnc sender software
+# 10. Process files with order given by filename 
+#  - 1. make heightmap, apply to gcode & engrave isolation of front 
+#  - 2. optional: engrave front annotations (Eco1 layer) - eg. some texts engraved in copper
+#  - 3. optional: cover front with UV-curable solder mask ink & cure (cover with thin foil, then glass to equalize UV ink layer thickness)
+#  - 4. optional: engrave with floating engraving tool your front mask, zero Z at Z=-0.5mm)
+#       (depth=-0.5mm), weakest spring load (CNCAid FET Tool holder)
+#  ? If single layer board - proceed to holes drilling
+#  - 5. drill 1.5mm alignment holes (to rotate board upside down and align proper x0y0 )
+#  - 6. rotate board, align with pins, 
+#  - 7. make heightmap, apply to gcode & engrave isolation of back
+#  - 8. optional: engrave back annotations (Eco2 layer)
+#  - 9. optional: cover back with UV mask ink & cure
+#  - 10. optional: engrave with FET back mask
+#  - 11. drill holes, start with biggest drill - harder to break when zeroing Z (probing)
+#  - 12. cut edges with 1.5mm two-flute flathead or fishtail bit
+#  DONE.
+#
+                                           
 # kicad_name = kicad project name / folder name 
 # kicad_path = kicad's projects path 
 # track_z_cut = gerber isolation z_cut depth
@@ -40,7 +73,7 @@ set vbit_tip 0.1
 set vbit_angle_rad [ expr { $vbit_angle*3.14159/180 } ]
 set vbit_iso_width [ expr { $vbit_tip + -$track_z_cut * [ tcl::mathfunc::tan $vbit_angle_rad ] } ]
 set iso_passes 2
-set isolation_overlap 0.8
+set isolation_overlap 80
 set annot_z_cut -0.05
 set track_xy_feed 400
 set z_feedrate 160	
@@ -64,11 +97,11 @@ set spindle_dwell 2
 
 set mask_xy_feed 600
 set mask_z_feed 150
-set mask_z_travel 2
-set mask_z_cut 0
-set mask_overlap 0.2
-set mask_vbit_tip 0.1
-set mask_method "Combo"
+set mask_z_travel 1
+set mask_z_cut -0.001
+set mask_overlap 20
+set mask_vbit_tip 0.2
+set mask_method "combo"
 
 
 
@@ -219,20 +252,21 @@ if {[lsearch [get_names] CutOut]>=0} {
 
 #7. FRONT MASK (best with floating engraver - to remove UV mask @ pads)
 if {[lsearch [get_names] FrontMask]>=0} {
-    paint "FrontMask" -tooldia $mask_vbit_tip -offset 0 -method combo -all -outname "FrontMask_paint"
+    paint "FrontMask" -tooldia $mask_vbit_tip -offset 0 -connect 1 -contour 1 -method standard -all -outname "FrontMask_paint"
     cncjob "FrontMask_paint" -dia $mask_vbit_tip -z_cut $mask_z_cut -z_move $mask_z_travel -feedrate $mask_xy_feed -feedrate_z $mask_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontMask_paint_cnc"
-    write_gcode "FrontMask_paint_cnc" "$flatcam_output_path/12_FET_45V_FrontMask.nc"
+    write_gcode "FrontMask_paint_cnc" "$flatcam_output_path/1b_FET_45V_FrontMask.nc"
 }
 
 #8. BACK MASK 
 if {[lsearch [get_names] BackMask]>=0} {
     mirror "BackMask" -box "CutOut" -axis $mirror_axis
-    paint "BackMask" -tooldia $mask_vbit_tip -offset 0 -method combo -all -outname "BackMask_paint"
+    paint "BackMask" -tooldia $mask_vbit_tip -offset 0 -connect 1 -contour 1 -method standard -all -outname "BackMask_paint"
     cncjob "BackMask_paint" -dia $mask_vbit_tip -z_cut $mask_z_cut -z_move $mask_z_travel -feedrate $mask_xy_feed -feedrate_z $mask_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackMask_paint_cnc"
-    write_gcode "BackMask_paint_cnc" "$flatcam_output_path/13_FET_45V_BackMask.nc"
+    write_gcode "BackMask_paint_cnc" "$flatcam_output_path/4Mb_FET_45V_BackMask.nc"
 }
 
-plot_all 
+# DON'T REDRAW - its time consuming...
+#plot_all 
 
 puts "FINISHED! --------------------------------------------------------------------------------"
 puts "Bit tip: ${vbit_tip}    angle: ${vbit_angle}    z_cut: ${track_z_cut}"
