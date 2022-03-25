@@ -54,7 +54,7 @@
 # DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
 
 # << PROJECT NAME (DIRECTORY NAME) >>
-set kicad_name "mys_t3227_rfm69_4chsynclight"
+set kicad_name "60mm_new_power"
 
 # << PROJECT PATH >>
 set kicad_path "/mnt/code/GoboHome"
@@ -72,8 +72,8 @@ set vbit_angle 60
 set vbit_tip 0.1
 set vbit_angle_rad [ expr { $vbit_angle*3.14159/180 } ]
 set vbit_iso_width [ expr { $vbit_tip + -$track_z_cut * [ tcl::mathfunc::tan $vbit_angle_rad ] } ]
-set iso_passes 2
-set isolation_overlap 80
+set iso_passes 5
+set isolation_overlap 60
 set annot_z_cut -0.05
 set track_xy_feed 400
 set z_feedrate 160	
@@ -81,7 +81,7 @@ set mirror_axis "Y"
 set shallow_hole_diam_front 0.3
 set shallow_hole_diam_back 0.35
 set shallow_hole_depth -0.5
-set thruhole_z -1.8
+set thruhole_z -2.0	
 
 set cutout_z_cut -1.8
 set cutout_passes 1
@@ -222,10 +222,12 @@ set mirrored "M"
 
 #5. HOLES
  if {[lsearch [get_names] Holes]>=0} {
-    drillcncjob "Holes" -drilled_dias 1.9 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 50 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.9mm_cnc"
-    write_gcode "Holes1.9mm_cnc" "$flatcam_output_path/6${mirrored}_1D2_Holes1mm9.nc"
-    drillcncjob "Holes" -drilled_dias 1.7 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 50 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.7mm_cnc"
-    write_gcode "Holes1.7mm_cnc" "$flatcam_output_path/6${mirrored}_1D2_Holes1mm7.nc"
+#    drillcncjob "Holes" -drilled_dias 1.9 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 50 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.9mm_cnc"
+#    milldrills "Holes" -milled_dias "2.0" -tooldia 1.5 -diatol 30 -outname "HolesUp1.5mm_Milled"
+#    cncjob "HolesUp1.5mm_Milled" -dia "1.5" -z_cut $thruhole_z -z_move 1 -feedrate 50 -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 40 -pp "grbl_11" -outname "HolesUp1.5mm_Milled_cnc"
+#    write_gcode "HolesUp1.5mm_Milled_cnc" "$flatcam_output_path/6${mirrored}_1D5_HolesMilledUp1_5mm.nc"
+#    drillcncjob "Holes" -drilled_dias 1.7 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 50 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.7mm_cnc"
+#    write_gcode "Holes1.7mm_cnc" "$flatcam_output_path/6${mirrored}_1D2_Holes1mm7.nc"
     drillcncjob "Holes" -drilled_dias 1.5 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 60 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.5mm_cnc"
     write_gcode "Holes1.5mm_cnc" "$flatcam_output_path/6${mirrored}_1D5_Holes1mm5.nc"
     drillcncjob "Holes" -drilled_dias 1.2 -diatol 5 -drillz $thruhole_z -travelz 1 -feedrate_z 80 -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endz 30 -endxy 0,0 -outname "Holes1.2mm_cnc"
