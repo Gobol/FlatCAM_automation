@@ -15,6 +15,7 @@
 #         * F.Cu
 #         * B.Cu
 #         * F_Mask, B_Mask, Eco1.User (front annotations), Eco2.User (back annotations), Edge.Cuts
+#         * User_1 / User_2 - for NCC (non-copper-clearing) polygons front & back respectively
 # 4. Generate drills file in KiCAD (use auxillary axis)
 # 5. Open FlatCAM
 # 6. Load this script
@@ -29,13 +30,15 @@
 #       (depth=-0.5mm), weakest spring load (CNCAid FET Tool holder)
 #  ? If single layer board - proceed to holes drilling
 #  - 5. drill 1.5mm alignment holes (to rotate board upside down and align proper x0y0 )
+# -  5b. with 90deg V-bit carve path of CutOut to make board edges looks sexier :)
 #  - 6. rotate board, align with pins, 
 #  - 7. make heightmap, apply to gcode & engrave isolation of back
 #  - 8. optional: engrave back annotations (Eco2 layer)
 #  - 9. optional: cover back with UV mask ink & cure
 #  - 10. optional: engrave with FET back mask
 #  - 11. drill holes, start with biggest drill - harder to break when zeroing Z (probing)
-#  - 12. cut edges with 1.5mm two-flute flathead or fishtail bit
+# -  12. with 90deg V-bit carve path of mirrored CutOut before actually cutting out board from plate
+#  - 13. cut edges with 1.5mm two-flute flathead or fishtail bit
 #  DONE.
 #
                                            
@@ -54,7 +57,8 @@
 # DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
 
 # << PROJECT NAME (DIRECTORY NAME) >>
-set kicad_name "60mm_new_power"
+set kicad_name "mys_t3227_rfm69_4chsynclight_v2"
+# set kicad_name "60mm_new_power_small"
 
 # << PROJECT PATH >>
 set kicad_path "/mnt/code/GoboHome"
@@ -67,13 +71,13 @@ set output_path "/mnt/Frezarra/"
 # vbit 60/0.1 => z_cut =-0.03, iso_passes=1
 
 # PROCESSING DETAILS
-set track_z_cut -0.035
+set track_z_cut -0.04
 set vbit_angle 60
 set vbit_tip 0.1
-set vbit_angle_rad [ expr { $vbit_angle*3.14159/180 } ]
-set vbit_iso_width [ expr { $vbit_tip + -$track_z_cut * [ tcl::mathfunc::tan $vbit_angle_rad ] } ]
-set iso_passes 5
-set isolation_overlap 60
+set vbit_angle_rad [ expr { $vbit_angle/2 *3.14159/180 } ]
+set vbit_iso_width [ expr { $vbit_tip + -$track_z_cut * 2 * [ tcl::mathfunc::tan $vbit_angle_rad ] } ]
+set iso_passes 2
+set isolation_overlap 30
 set annot_z_cut -0.05
 set track_xy_feed 400
 set z_feedrate 160	
@@ -83,11 +87,24 @@ set shallow_hole_diam_back 0.35
 set shallow_hole_depth -0.5
 set thruhole_z -2.0	
 
+set ncc_tool_dia 1.5
+set ncc_z_cut -0.3
+set ncc_xy_feed 300
+set ncc_z_feed 160
+
 set cutout_z_cut -1.8
+set cutout_tool_dia 1.5
 set cutout_passes 1
 set cutout_cut_per_pass [ expr { -$cutout_z_cut / $cutout_passes } ]
+set add_cutout_offset "Y"
 set cutout_feedrate_xy 200
 set cutout_feedrate_z 160
+
+set cutout_carve_z_cut -0.5
+set cutout_carve_vbit_angle 90
+set cutout_carve_vbit_tip 0.1
+set cutout_carve_vbit_angle_rad [ expr { $cutout_carve_vbit_angle / 2 *3.14159/180 } ]
+set cutout_carve_path_width [ expr { $cutout_carve_vbit_tip + -$cutout_carve_z_cut * 2 * [ tcl::mathfunc::tan $cutout_carve_vbit_angle_rad ]  } ]
 
 set align_holes_depth -6
 set align_holes_dia 1.5
@@ -96,16 +113,21 @@ set spindle_rpm 1000
 set spindle_dwell 2
 
 set mask_xy_feed 600
-set mask_z_feed 150
+set mask_z_feed 250
 set mask_z_travel 1
 set mask_z_cut -0.001
 set mask_overlap 20
 set mask_vbit_tip 0.2
 set mask_method "combo"
 
+set panel_count_x 2
+set panel_count_y 2
+set panel_spacing_x 1.5
+set panel_spacing_y 1.5
 
 
-# CLEAR PROJECT but do not delete script ;)
+
+# CLEAR PROJECT in FlatCAM, but do not delete script ;)
 set objnames [split [get_names] "\n" ]; list 
 
 set i 0
@@ -130,17 +152,20 @@ if {$output_path != ""} {
    file mkdir $flatcam_output_path
 } 
 
-
+# SETUP FILE NAMES
 set gerber_front_copper "$kicad_gerber_path/$kicad_name-F_Cu.gbr"; list
 set gerber_back_copper "$kicad_gerber_path/$kicad_name-B_Cu.gbr"; list
 set gerber_cutout "$kicad_gerber_path/$kicad_name-Edge_Cuts.gbr"; list
 set gerber_drills_pth "$kicad_gerber_path/$kicad_name-PTH.drl"; list
-set gerber_front_annot "$kicad_gerber_path/$kicad_name-Eco1_User.gbr"; list
-set gerber_back_annot "$kicad_gerber_path/$kicad_name-Eco2_User.gbr"; list
+set gerber_front_annot "$kicad_gerber_path/$kicad_name-User_Eco1.gbr"; list
+set gerber_back_annot "$kicad_gerber_path/$kicad_name-User_Eco2.gbr"; list
 set gerber_front_mask "$kicad_gerber_path/$kicad_name-F_Mask.gbr"; list 
 set gerber_back_mask "$kicad_gerber_path/$kicad_name-B_Mask.gbr"; list 
+set gerber_front_ncc "$kicad_gerber_path/$kicad_name-User_1.gbr"; list 
+set gerber_back_ncc "$kicad_gerber_path/$kicad_name-User_2.gbr"; list 
 
-#OPEN SOURCE FILES 
+
+# OPEN SOURCE FILES 
 open_gerber $gerber_front_copper -outname FrontCopper
 open_gerber $gerber_back_copper -outname BackCopper
 open_gerber $gerber_cutout -outname CutOut
@@ -148,21 +173,43 @@ open_gerber $gerber_back_annot -outname BackAnnot
 open_gerber $gerber_front_annot -outname FrontAnnot
 open_gerber $gerber_front_mask -outname FrontMask
 open_gerber $gerber_back_mask -outname BackMask
+open_gerber $gerber_front_ncc -outname FrontNCC
+open_gerber $gerber_back_ncc -outname BackNCC
 open_excellon $gerber_drills_pth -outname Holes
+
+
+# panelize "FrontCopper_iso" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gFrontCopper_iso"
+# panelize "BackCopper_iso" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gBackCopper_iso"
+# panelize "CutOut" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gCutOut"
+# panelize "BackAnnot" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gBackAnnot_paint"
+# panelize "FrontAnnot_paint" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gFrontAnnot_paint"
+# panelize "FrontMask" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gFrontMask"
+# panelize "BackMask" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gBackMask"
+# panelize "Holes" -box "xCutOut" -spacing_columns $panel_spacing_x -spacing_rows $panel_spacing_y -columns $panel_count_x -rows $panel_count_y -outname "gHoles"
+
 
 #temporarily set mirrored flag as ""
 set mirrored ""
 
 #1. ISOLATE FRONT COPPER
+if {[lsearch [get_names] FrontCopper]>=0} {
 isolate "FrontCopper" -dia $vbit_iso_width -passes $iso_passes -overlap $isolation_overlap -combine 1 -outname "FrontCopper_iso"
 cncjob "FrontCopper_iso" -dia $vbit_tip -z_cut $track_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontCopper_iso_cnc"
 write_gcode "FrontCopper_iso_cnc" "$flatcam_output_path/1_45V_FrontCopper.nc"
- 
+}
+
 #1a. ENGRAVE FRONT ANNOTATIONS with same tool (negative/carved-out text on copper) - Eco1_User layer
 if {[lsearch [get_names] FrontAnnot]>=0} {
     paint "FrontAnnot" -tooldia $vbit_tip -offset 0 -method standard -all -outname "FrontAnnot_paint"
     cncjob "FrontAnnot_paint" -dia $vbit_tip -z_cut $annot_z_cut -z_move 1 -feedrate $track_xy_feed -feedrate_z $z_feedrate -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontAnnot_paint_cnc"
     write_gcode "FrontAnnot_paint_cnc" "$flatcam_output_path/1a_45V_FrontAnnot.nc"
+}
+
+#1b. PAINT FRONT NCC preferably 1-1.5mm flat 2-3flute - User_1 layer
+if {[lsearch [get_names] FrontNCC]>=0} {
+    paint "FrontNCC" -tooldia $ncc_tool_dia -offset 0 -method standard -all -outname "FrontNCC_paint"
+    cncjob "FrontNCC_paint" -dia $ncc_tool_dia -z_cut $ncc_z_cut -z_move 1 -feedrate $ncc_xy_feed -feedrate_z $ncc_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "FrontNCC_paint_cnc"
+    write_gcode "FrontNCC_paint_cnc" "$flatcam_output_path/1b_1F5_FrontNCC.nc"
 }
 
 #2. CREATE ALIGNMENT DRILLS
@@ -199,9 +246,26 @@ if {[lsearch [get_names] BackAnnot]>=0} {
     write_gcode "BackAnnot_paint_cnc" "$flatcam_output_path/5M_45V_BackAnnot.nc"
 }
 
+#4b. PAINT BACK NCC preferably 1-1.5mm flat 2-3flute - User_1 layer
+if {[lsearch [get_names] BackNCC]>=0} {
+    mirror "BackNCC" -box "CutOut" -axis $mirror_axis
+    paint "BackNCC" -tooldia $ncc_tool_dia -offset 0 -method standard -all -outname "BackNCC_paint"
+    cncjob "BackNCC_paint" -dia $ncc_tool_dia -z_cut $ncc_z_cut -z_move 1 -feedrate $ncc_xy_feed -feedrate_z $ncc_z_feed -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -endxy 0,0 -endz 30 -pp "grbl_11" -outname "BackNCC_paint_cnc"
+    write_gcode "BackNCC_paint_cnc" "$flatcam_output_path/6M_1F5_BackNCC.nc"
+}
+
 #5. MIRROR HOLES, DRILL 1.0mm then 0.6mm then SHALLOW 0.6mm on BACK (coded as 0.35mm)
 if {[lsearch [get_names] Holes]>=0} {
     mirror "Holes" -box "CutOut" -axis $mirror_axis
+}
+
+#5a. V-CARVE front cutout for better board edge quality, best use 90deg V-bit
+if {[lsearch [get_names] CutOut]>=0} { 
+if {[lsearch [get_names] FrontCopper]>=0} { 
+   geocutout "CutOut" -dia $cutout_carve_path_width -gapsize 0 -gaps "none" -outname "FrontCutOutCrv_geo"
+    cncjob "FrontCutOutCrv_geo" -dia $cutout_carve_path_width -z_cut $cutout_carve_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "FrontCutOutCrv_geo_cnc"
+    write_gcode "FrontCutOutCrv_geo_cnc" "$flatcam_output_path/4_90V_FrontCutOutCrv.nc"
+}
 }
 
 #6. CUTOUT 
@@ -247,9 +311,14 @@ set mirrored "M"
 
 #6. CUTOUT
 if {[lsearch [get_names] CutOut]>=0} {
-    geocutout "CutOut" -dia 1.5 -gapsize 0 -gaps "none" -outname "CutOut_geo"
-    cncjob "CutOut_geo" -dia 1.5 -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
-    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/12${mirrored}_1F5_CutOut.nc"
+if {$add_cutout_offset == "Y"} {
+    set cutout_dia [ expr { $cutout_tool_dia+$cutout_carve_path_width/2 }]
+} else {
+    set cutout_dia [ $cutout_tool_dia ]
+}
+    geocutout "CutOut" -dia $cutout_dia -gapsize 0 -gaps "none" -outname "CutOut_geo"
+    cncjob "CutOut_geo" -dia $cutout_tool_dia -z_cut $cutout_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -dpp $cutout_cut_per_pass -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "CutOut_geo_cnc"
+    write_gcode "CutOut_geo_cnc" "$flatcam_output_path/13${mirrored}_1F5_CutOut.nc"
 }
 
 #7. FRONT MASK (best with floating engraver - to remove UV mask @ pads)
@@ -259,7 +328,14 @@ if {[lsearch [get_names] FrontMask]>=0} {
     write_gcode "FrontMask_paint_cnc" "$flatcam_output_path/1b_FET_45V_FrontMask.nc"
 }
 
-#8. BACK MASK 
+#8. V-CARVE back cutout for better board edge quality, best use 90deg V-bit
+if {[lsearch [get_names] CutOut]>=0} { 
+   geocutout "CutOut" -dia $cutout_carve_path_width -gapsize 0 -gaps "none" -outname "BackCutOutCrv_geo"
+    cncjob "BackCutOutCrv_geo" -dia $cutout_carve_path_width -z_cut $cutout_carve_z_cut -z_move 1 -feedrate $cutout_feedrate_xy -feedrate_z $cutout_feedrate_z -endxy 0,0 -endz 30 -pp "grbl_11" -spindlespeed $spindle_rpm -dwelltime $spindle_dwell -outname "BackCutOutCrv_geo_cnc"
+    write_gcode "BackCutOutCrv_geo_cnc" "$flatcam_output_path/12${mirrored}_90V_BackCutOutCrv.nc"
+}
+
+#9. BACK MASK 
 if {[lsearch [get_names] BackMask]>=0} {
     mirror "BackMask" -box "CutOut" -axis $mirror_axis
     paint "BackMask" -tooldia $mask_vbit_tip -offset 0 -connect 1 -contour 1 -method standard -all -outname "BackMask_paint"
