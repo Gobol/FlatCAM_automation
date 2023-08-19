@@ -1,0 +1,900 @@
+
+#   ____ _    ____ ___ ____ ____ _  _           
+#   |--- |___ |--|  |  |___ |--| |\/|           
+#   ____ _  _ ___ ____ _  _ ____ ___ _ ____ __ _
+#   |--| |__|  |  [__] |\/| |--|  |  | [__] | \|
+#                                               
+#                                               
+        
+# HOWTO:
+# 1. Create project in KiCAD 
+# 2. make PCB ( set auxillary origin point )
+# 3. plot PCB with layers using auxillary axis origin point and "Do not tent vias" : 
+#  - minimal: F.Cu, Edge.Cuts
+#  - available: 
+#         * F.Cu
+#         * B.Cu
+#         * F_Mask, B_Mask, Eco1.User (front annotations), Eco2.User (back annotations), Edge.Cuts
+#         * User_1 / User_2 - for NCC (non-copper-clearing) polygons front & back respectively
+# 4. Generate drills file in KiCAD (use auxillary axis)
+# 5. Open FlatCAM
+# 6. Load this script
+# 7. Setup paths below (input & output)
+# 8. Adjust cuts/overlaps & other params - according to your/cnc needs
+# 9. Open gcodes in OpenCNCPilot or your fav cnc sender software
+# 10. Process files with order given by filename 
+#  - 1. make heightmap, apply to gcode & engrave isolation of front 
+#  - 2. optional: engrave front annotations (Eco1 layer) - eg. some texts engraved in copper
+#  - 3. optional: cover front with UV-curable solder mask ink & cure (cover with thin foil, then glass to equalize UV ink layer thickness)
+#  - 4. optional: engrave with floating engraving tool your front mask, zero Z at Z=-0.5mm)
+#       (depth=-0.5mm), weakest spring load (CNCAid FET Tool holder)
+# TO CHECK:
+#  - 4a. drill'n'mill holes from front - drilling from bottom after bottom processing can make copper tear off the board, esp. when mask applied
+#        start with biggest drill (easier to zero-probe)
+#
+#  - 5. drill 1.5mm alignment holes (to rotate board upside down and align proper x0y0 )
+# -  5b. with 90deg V-bit carve path of CutOut to make board edges looks sexier :)
+#  - 6. rotate board, align with pins, 
+#  - 7. make heightmap, apply to gcode & engrave isolation of back
+#  - 8. optional: engrave back annotations (Eco2 layer)
+#  - 9. optional: cover back with UV mask ink & cure
+#  - 10. optional: engrave with FET back mask
+# OR DRILL HERE, BUT HOW TO PROTECT TOP COPPER WHEN MILLING FROM BOTTOM ?
+#  - 12. with 90deg V-bit carve path of mirrored CutOut before actually cutting out board from plate
+#  - 13. cut edges with 1.5mm two-flute flathead or fishtail bit
+#  DONE.
+#
+
+# PROCESS DESCRIPTION WITH ELECTROPLATED VIAs 
+# 1. drill alignment holes
+# 2. drill all holes
+# 3. electroplate PCB (1000 grit sanding, acetone, graphite 30 (kontakt chemie), drying, sanding graphite with flat surface, electroplate (CuSO4 (160g/L) + H2SO4 (7-10%) + polysorbate 20 (2ml/L)) )
+#      - 0.9-1.2A current for 40-90min, PCB connected to NEGATIVE (-) 
+# 4. engrave top isolation
+# 5. engrave top annotations
+# 6. UV mask on top
+# 7. remove UV from pads with FET tool holder
+# 7a. 90deg top cutout carve 
+# 8. engrave bottom isolation
+# 9. engrave bottom annotations
+# 10. UV mask on bottom
+# 11. remove UV from pads with FET tool holder
+# 12. 90deg bottom cutout carve 
+# 13. cut board 
+
+                                           
+# fa_kicad_name = kicad project name / folder name 
+# fa_kicad_path = kicad's projects path 
+# fa_track_z_cut = gerber isolation z_cut depth
+# fa_annot_z_cut = Eco1 & Eco2 layer paint z_cut 
+# fa_track_xy_feed = isolation carving speed 
+# fa_z_feedrate = isolation Z plunge speed
+# fa_mirror_axis = mirror axis for two sided boards (Y = left<->right, X = top<->bottom) 
+# fa_shallow_hole_diam_front = diameter of holes (excellon) which will be drilled shallow from FRONT side of PCB (up to fa_shallow_hole_depth) - useful for some PCB stuff I made
+# fa_shallow_hole_diam_back = the same, but BACK side of PCB
+# fa_thruhole_z - depth of holes 
+# fa_cutout_z_cut - depth of cutout (should equal PCB thickness+0.1mm)
+
+## DEBUGGING
+
+if {[info vars shellvar_0] eq ""} {
+    set shellvar_0 "mys_esp32_4chsynclight_v2"
+    set shellvar_1 1
+    set shellvar_2 1
+    set shellvar_3 "Y"
+}
+
+set debug_mode "Y"
+
+# DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
+
+# << PROJECT NAME (DIRECTORY NAME) >>
+set fa_kicad_name $shellvar_0
+# set fa_kicad_name "mys_t3227_rf24_4chsynclight_v2"
+
+# << PROJECT PATH >>
+set fa_kicad_path "/mnt/Gerbers"
+
+# << OUTPUT PATH, if empty - equals to PROJECT PATH, if doesn't exist - CREATE ONE >>
+set fa_output_path "/mnt/Frezarra"
+
+# good params : 
+# vbit 45/0.1 => z_cut=-0.07, fa_iso_passes=2
+# vbit 60/0.1 => z_cut =-0.03, fa_iso_passes=1
+
+
+# PROCESSING DETAILS
+set fa_track_z_cut -0.03
+set fa_vbit_angle 60
+set fa_vbit_tip 0.1
+set fa_iso_passes 2
+set fa_isolation_overlap 75
+set fa_annot_z_cut -0.05
+
+set fa_vbit_angle_rad [ expr { $fa_vbit_angle/2 *3.14159/180 } ]
+set fa_vbit_iso_width [ expr { $fa_vbit_tip + -$fa_track_z_cut * 2 * [ tcl::mathfunc::tan $fa_vbit_angle_rad ] } ]
+set fa_track_xy_feed 400
+set fa_z_feedrate 160	
+set fa_mirror_axis "X"
+set fa_shallow_hole_diam_front 0.3
+set fa_shallow_hole_diam_back 0.35
+set fa_shallow_hole_depth -0.5
+#how deep drill the hole
+set fa_thruhole_z -2.0	
+#make holes mirrored (drilled from backside) or not?
+set fa_thruhole_mirrored "Y"
+set fa_preprocessor "GRBL_11"
+
+set fa_ncc_tool_dia 1.5
+set fa_ncc_z_cut -0.3
+set fa_ncc_xy_feed 300
+set fa_ncc_z_feed 160
+
+set fa_cutout_z_cut -1.8
+set fa_cutout_tool_dia 1.5
+set fa_cutout_passes 1
+set fa_cutout_cut_per_pass [ expr { -$fa_cutout_z_cut / $fa_cutout_passes } ]
+set fa_add_cutout_offset "Y"
+set fa_cutout_feedrate_xy 200
+set fa_cutout_feedrate_z 160
+
+set fa_cutout_carve_z_cut -0.5
+set fa_cutout_carve_vbit_angle 90
+set fa_cutout_carve_fa_vbit_tip 0.1
+set fa_cutout_carve_vbit_angle_rad [ expr { $fa_cutout_carve_vbit_angle / 2 *3.14159/180 } ]
+set fa_cutout_carve_path_width [ expr { $fa_cutout_carve_fa_vbit_tip + -$fa_cutout_carve_z_cut * 2 * [ tcl::mathfunc::tan $fa_cutout_carve_vbit_angle_rad ]  } ]
+
+set fa_align_holes_depth -8
+set fa_align_holes_dia 1.7
+set fa_align_holes_offset 3
+
+set fa_spindle_rpm 1000
+set fa_spindle_dwell 2
+
+set fa_mask_xy_feed 600
+set fa_mask_z_feed 250
+set fa_mask_z_travel 1
+set fa_mask_z_cut -0.001
+set fa_mask_overlap 1
+set fa_mask_fa_vbit_tip 0.2
+set fa_mask_method "combo"
+
+set fa_stmask_xy_feed 120
+set fa_stmask_z_feed 100
+set fa_stmask_z_travel 1
+set fa_stmask_z_cut -0.25
+set fa_stmask_overlap 1
+set fa_stmask_fa_vbit_tip 0.1
+set fa_stmask_fa_vbit_angle 30
+set fa_stmask_method "combo"
+set fa_stmask_carve_vbit_angle_rad [ expr { $fa_stmask_fa_vbit_angle / 2 *3.14159/180 } ]
+set fa_stmask_carve_path_width [ expr { $fa_stmask_fa_vbit_tip + -$fa_stmask_z_cut * 2 * [ tcl::mathfunc::tan $fa_stmask_carve_vbit_angle_rad ]  } ]
+
+
+set fa_panel_count_x $shellvar_1
+set fa_panel_count_y $shellvar_2
+set fa_panel_spacing_x 6
+set fa_panel_spacing_y 6
+
+set fa_electroplated_mode [string toupper $shellvar_3]
+
+# DEBUGGING BEGIN --------------------------------------------------------------------
+# REDIRECT ALL PUTS to file "/tmp/tcltrace.tmp"
+# overwrite at each invocation of this script; pick somewhere else if you prefer
+
+    set _Trace_fd [open "/tmp/tcltrace.tmp" w]
+    fconfigure $_Trace_fd -buffering line
+
+    if {[info commands _puts] eq ""} {
+        rename puts _puts
+    }
+    proc puts args {
+        uplevel 1 _puts $::_Trace_fd "$args"
+        flush $::_Trace_fd
+    }
+
+# DEBUGGING END --------------------------------------------------------------------
+
+
+puts "\[FLATCAM_AUTO] Clearing project in FlatCAM"
+
+# CLEAR PROJECT in FlatCAM, but do not delete script ;)
+set objnames [split [get_names] "\n" ]; list 
+
+set i 0
+set l_obj [llength $objnames]
+while {$i < $l_obj} {
+ set obj [lindex $objnames $i]
+ if !{[string match "*.FlatScript" $obj]} {
+    puts "+-->\[FLATCAM_AUTO] delete $obj ..."
+    delete $obj -f 1
+ }
+ incr i
+}
+puts "*===\[FLATCAM_AUTO] ok"
+
+# SET UP PATHS AND FILENAMES
+# KiCAD input files (gerbers)
+set kicad_gerber_path "$fa_kicad_path/$fa_kicad_name/gerber"; list
+# setup output path - clean dest directory
+set fa_flatcam_output_path "$fa_output_path/$fa_kicad_name"
+file mkdir $fa_flatcam_output_path
+file delete -force -- $fa_flatcam_output_path
+file mkdir $fa_flatcam_output_path
+
+# SETUP FILE NAMES
+set gerber_front_copper "$kicad_gerber_path/$fa_kicad_name-F_Cu.gbr"; list
+set gerber_back_copper "$kicad_gerber_path/$fa_kicad_name-B_Cu.gbr"; list
+set gerber_cutout "$kicad_gerber_path/$fa_kicad_name-Edge_Cuts.gbr"; list
+set gerber_drills_pth "$kicad_gerber_path/$fa_kicad_name-PTH.drl"; list
+set gerber_front_annot "$kicad_gerber_path/$fa_kicad_name-User_Eco1.gbr"; list
+set gerber_back_annot "$kicad_gerber_path/$fa_kicad_name-User_Eco2.gbr"; list
+set gerber_front_mask "$kicad_gerber_path/$fa_kicad_name-F_Mask.gbr"; list 
+set gerber_back_mask "$kicad_gerber_path/$fa_kicad_name-B_Mask.gbr"; list 
+set gerber_front_ncc "$kicad_gerber_path/$fa_kicad_name-User_1.gbr"; list 
+set gerber_back_ncc "$kicad_gerber_path/$fa_kicad_name-User_2.gbr"; list 
+
+puts "\[FLATCAM_AUTO] Opening source files ..."
+
+# OPEN SOURCE FILES 
+open_gerber $gerber_front_copper -outname TopCopper
+open_gerber $gerber_back_copper -outname BottomCopper
+open_gerber $gerber_cutout -outname CutOut
+open_gerber $gerber_cutout -outname mCutOut
+open_gerber $gerber_back_annot -outname BottomAnnot
+open_gerber $gerber_front_annot -outname TopAnnot
+open_gerber $gerber_front_mask -outname TopMask
+open_gerber $gerber_back_mask -outname BottomMask
+open_gerber $gerber_front_ncc -outname TopNCC
+open_gerber $gerber_back_ncc -outname BottomNCC
+open_excellon $gerber_drills_pth -outname Holes
+open_excellon $gerber_drills_pth -outname mHoles
+mirror mHoles -box Cutout -axis $fa_mirror_axis
+mirror mCutout -box mCutout -axis $fa_mirror_axis
+
+puts "*===\[FLATCAM_AUTO] done"
+
+#temporarily set mirrored flag as ""
+set mirrored ""
+
+proc IsLayerPresent {lname} {
+    if {[lsearch [get_names] $lname]>=0} {
+        return 1
+    }
+    return 0
+}
+
+proc Get_board_sides {} {
+    if { [IsLayerPresent TopCopper]>0 && [IsLayerPresent BottomCopper]>0 } {
+        return 2
+    }
+    if { [IsLayerPresent TopCopper]>0 ^ [IsLayerPresent BottomCopper]>0 } {
+        return 1
+    }
+    return 0
+}
+
+proc globalpat {args} {
+    foreach pattern $args {
+        set varnames [info globals $pattern]
+        if {[llength $varnames] != 0} {
+            uplevel 1 global $varnames
+        }
+    }
+}
+
+proc IsPanelized {} {
+    globalpat *fa_*
+    if {($fa_panel_count_x>1 || $fa_panel_count_y>1)} {
+        return 1
+    }
+    return 0
+}
+
+proc Isolate_Copper {layername filenum toolname mirror} {
+    # make access to global variables in proc
+    globalpat *fa_*
+
+    puts "\[FLATCAM_AUTO] ENTRY: Isolate_Copper $layername $filenum $toolname $mirror"
+
+    if {[IsLayerPresent $layername]>0} {
+        if {$mirror == "M"} {
+            puts "+-->\[Isolate_Copper] requested mirrored layer around $fa_mirror_axis axis."
+            mirror $layername -box "CutOut" -axis $fa_mirror_axis
+        }
+        puts "+-->\[Isolate_Copper] isolating $layername ..."
+        isolate $layername -dia $fa_vbit_iso_width -passes $fa_iso_passes -overlap $fa_isolation_overlap -combine 1 -outname "$layername\_iso"
+        set prefix ""
+        if {($fa_panel_count_x>1 || $fa_panel_count_y>1)} {
+            puts "+-->\[Isolate_Copper] panelizing ..."
+            panelize "$layername\_iso" -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "p$layername\_iso"
+            set prefix "p"
+        }
+        cncjob "$prefix$layername\_iso" -dia $fa_vbit_tip -z_cut $fa_track_z_cut -z_move 1 -feedrate $fa_track_xy_feed -feedrate_z $fa_z_feedrate -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endxy 0,0 -endz 30 -pp $fa_preprocessor -outname "$prefix$layername\_iso_cnc"
+        if {[IsLayerPresent "$prefix$layername\_iso_cnc"]>0} {
+            puts "+-->\[Isolate_Copper] writing gcode to $fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc..."
+            write_gcode "$prefix$layername\_iso_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc" 
+            puts "*===\[Isolate_Copper] done."
+            return 1
+        }
+    }
+    puts "*===\[Isolate_Copper] requested layer $layername not found."
+    return 0
+}
+
+proc Paint_Annot_Layer {layername filenum toolname mirror} {
+    globalpat *fa_*
+    
+    puts "\[FLATCAM_AUTO] ENTRY: Paint_Annot_Layer $layername $filenum $toolname $mirror"
+
+    #ENGRAVE ANNOTATIONS with tool, typically 45V (negative/carved-out text on copper) - Eco1_User layer
+    if {[IsLayerPresent $layername]>0} {
+        if {$mirror == "M"} {
+            puts "+-->\[Paint_Annot_Layer] requested mirrored layer around $fa_mirror_axis axis."
+            mirror $layername -box "CutOut" -axis $fa_mirror_axis
+        }
+        puts "+-->\[Paint_Annot_Layer] painting annotation $layername ..."
+        paint $layername -tooldia $fa_vbit_tip -offset 0 -method standard -all -outname "$layername\_paint"
+        set prefix ""
+        if {($fa_panel_count_x>1 || $fa_panel_count_y>1)} {
+            set prefix "p"
+            puts "+-->\[Paint_Annot_Layer] panelizing ..."
+            panelize "$layername\_paint" -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "p$layername\_paint"
+        }
+        cncjob "$prefix$layername\_paint" -dia $fa_vbit_tip -z_cut $fa_track_z_cut -z_move 1 -feedrate $fa_track_xy_feed -feedrate_z $fa_z_feedrate -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endxy 0,0 -endz 30 -pp $fa_preprocessor -outname "$prefix$layername\_paint_cnc"
+        if {[IsLayerPresent "$prefix$layername\_paint_cnc"]>0} {        
+            puts "+-->\[Paint_Annot_Layer] writing gcode to $fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc..."
+            write_gcode "$prefix$layername\_paint_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc" 
+            puts "*===\[Paint_Annot_Layer] done."
+            return 1
+        }
+    }
+    puts "*===\[Paint_Annot_Layer] requested layer $layername not found."
+    return 0
+}
+
+proc Paint_NCC_Layer {layername filenum toolname mirror} {
+    globalpat *fa_*
+
+    puts "\[FLATCAM_AUTO] ENTRY: Paint_NCC_Layer $layername $filenum $toolname $mirror"
+
+    if {[IsLayerPresent $layername]>0} {
+        if {$mirror == "M"} {
+            puts "+-->\[Paint_NCC_Layer] requested mirrored layer around $fa_mirror_axis axis."
+            mirror $layername -box "CutOut" -axis $fa_mirror_axis
+        }
+        puts "+-->\[Paint_NCC_Layer] painting NCC $layername ..."
+        paint $layername -tooldia $fa_ncc_tool_dia -offset 0 -method standard -all -outname "$layername\_paint"
+        set prefix ""
+        if {[IsPanelized]==1} {
+            set prefix "p"
+            panelize "$layername\_paint" -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "p$layername\_paint"
+        }            
+        cncjob "$prefix$layername\_paint" -dia $fa_ncc_tool_dia -z_cut $fa_ncc_z_cut -z_move 1 -feedrate $fa_ncc_xy_feed -feedrate_z $fa_ncc_z_feed -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endxy 0,0 -endz 30 -pp $fa_preprocessor -outname "$prefix$layername\_paint_cnc"
+
+        if {[IsLayerPresent "$prefix$layername\_paint_cnc"]>0} {
+            puts "+-->\[Paint_NCC_Layer] writing gcode to $fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc..."
+            write_gcode "$prefix$layername\_paint_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc"
+            puts "*===\[Paint_NCC_Layer] done."
+            return 1
+        }
+    }
+    puts "*===\[Paint_NCC_Layer] requested layer $layername not found."
+    return 0
+}
+
+# proc Paint_Mask_Layer - create gcode to from mask layer, substracting holes geometry in electroplating mode (to prevent hole
+#                         destruction by floating V-bit)
+
+proc Paint_Mask_Layer {layername holesname filenum toolname mirror} {
+    globalpat *fa_*
+
+    puts "\[FLATCAM_AUTO] ENTRY: Paint_Mask_Layer $layername $holesname $filenum $toolname $mirror"
+
+    if {[IsLayerPresent $layername]>0} {
+
+        if {$fa_electroplated_mode == "Y"} {
+            puts "+-->\[Paint_Mask_Layer] substracting holes from mask $layername ..."
+            punchgerber $layername -exc $holesname -dias "all" -diatol 5 -holescale 2 -outname "$layername\_punched"
+            set layername "$layername\_punched"
+
+            # # To prevent destroying already drilled holes in electroplating mode - cut the mask only on outside (isolate)
+            # puts "+-->\[Paint_Mask_Layer] Electroplating - using isolation strategy on mask $layername ..."
+            # isolate $layername -dia 0.1 -passes 1 -overlap 0 -combine 1 -outname "$layername\_iso"
+            # set layername "$layername\_iso"
+        }
+
+        if {$mirror == "M"} {
+            puts "+-->\[Paint_Mask_Layer] requested mirrored layer $layername around $fa_mirror_axis axis."
+            mirror $layername -box "CutOut" -axis $fa_mirror_axis
+        } 
+
+        puts "+-->\[Paint_Mask_Layer] painting mask $layername ..."
+        paint $layername -tooldia $fa_mask_fa_vbit_tip -offset 0 -connect 1 -contour 1 -method standard -all -outname "$layername\_paint"
+        
+        set prefix ""
+        if {[IsPanelized]==1} { 
+            set prefix "p"
+            puts "+-->\[Paint_Mask_Layer] panelize $layername\_paint ..."
+            panelize "$layername\_paint" -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "p$layername\_paint"
+        }
+        cncjob "$prefix$layername\_paint" -dia $fa_mask_fa_vbit_tip -z_cut $fa_mask_z_cut -z_move $fa_mask_z_travel -feedrate $fa_mask_xy_feed -feedrate_z $fa_mask_z_feed -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endxy 0,0 -endz 30 -pp $fa_preprocessor -outname "$prefix$layername\_paint_cnc"
+        if {[IsLayerPresent "$prefix$layername\_paint_cnc"]>0} {
+            puts "+-->\[Paint_Mask_Layer] writing gcode to $fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc ..."
+            write_gcode "$prefix$layername\_paint_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc"
+            puts "*===\[Paint_Mask_Layer] done."
+            return 1
+        }
+    }
+    puts "*===\[Paint_Mask_Layer] requested layer $layername not found."
+    return 0
+}
+
+proc Make_Stencil_Mask {layername holesname filenum toolname mirror} {
+    globalpat *fa_*
+
+    puts "\[FLATCAM_AUTO] ENTRY: Make_Stencil_Mask $layername $holesname $filenum $toolname $mirror"
+
+    if {[IsLayerPresent $layername]>0} {
+        puts "+-->\[Make_Stencil_Mask] Electroplating - using isolation strategy on mask $layername ..."
+        isolate $layername -dia -$fa_stmask_carve_path_width -passes 1 -overlap $fa_stmask_overlap -combine 1 -outname "$layername\_stencil_iso"
+        set layername "$layername\_stencil_iso"
+
+        if {$mirror == "M"} {
+            puts "+-->\[Make_Stencil_Mask] requested mirrored layer $layername around $fa_mirror_axis axis."
+            mirror $layername -box "CutOut" -axis $fa_mirror_axis
+        } 
+
+        # puts "+-->\[Make_Stencil_Mask] painting mask $layername ..."
+        # paint $layername -tooldia $fa_mask_fa_vbit_tip -offset 0 -connect 1 -contour 1 -method standard -all -outname "$layername\_paint"
+        
+        set prefix ""
+        cncjob "$prefix$layername" -dia $fa_stmask_fa_vbit_tip -z_cut $fa_stmask_z_cut -z_move $fa_stmask_z_travel -feedrate $fa_stmask_xy_feed -feedrate_z $fa_stmask_z_feed -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endxy 0,0 -endz 30 -pp $fa_preprocessor -outname "$prefix$layername\_cnc"
+        if {[IsLayerPresent "$prefix$layername\_cnc"]>0} {
+            puts "+-->\[Make_Stencil_Mask] writing gcode to $fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc ..."
+            write_gcode "$prefix$layername\_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername.nc"
+            puts "*===\[Make_Stencil_Mask] done."
+            return 1
+        }
+    }
+    puts "*===\[Make_Stencil_Mask] requested layer $layername not found."
+    return 0
+}
+
+
+proc Panelize_Layer {layername dest_layername} {
+    globalpat *fa_*
+    if {[IsPanelized]==1} {
+        panelize $layername -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "$dest_layername"
+    }
+}
+
+proc Create_Alignment_Holes {cutout_obj_name filenum toolname} {
+    globalpat *fa_*
+    puts "\[FLATCAM_AUTO] ENTRY: Create_Alignment_Holes $cutout_obj_name $filenum $toolname"
+
+    if {[IsLayerPresent $cutout_obj_name]>0} {
+        # WARNING aligndrill uses modified executive !!!
+        puts "+-->\[Create_Alignment_Holes] create alignment holes geometry ..."
+        aligndrill $cutout_obj_name -axis $fa_mirror_axis -box $cutout_obj_name -dia $fa_align_holes_dia -grid 0 -gridoffset 0 -dist $fa_align_holes_offset -outname "AlignmentDrills"
+        puts "+-->\[Create_Alignment_Holes] create alignment holes cnc jsb ..."
+        drillcncjob "AlignmentDrills" -drilled_dias $fa_align_holes_dia -diatol 5 -drillz $fa_align_holes_depth -travelz 1 -feedrate_z 80 -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endz 30 -endxy 0,0 -pp $fa_preprocessor -outname "AlignmentDrills_cnc"
+        if {[IsLayerPresent AlignmentDrills_cnc]>0} {
+            puts "+-->\[Create_Alignment_Holes] writing gcode to $fa_flatcam_output_path/$filenum\_$toolname\_AlignmentDrills.nc ..."
+            write_gcode "AlignmentDrills_cnc" "$fa_flatcam_output_path/$filenum\_$toolname\_AlignmentDrills.nc"
+            puts "*===\[Create_Alignment_Holes] done."
+            return 1
+        }
+    }
+    puts "*===\[Create_Alignment_Holes] requested layer $cutout_obj_name not found."
+    return 0
+}
+
+proc Drill_Shallow_Holes {holes_obj_name front filenum toolname mirror} {
+# DRILL SHALLOW HOLES on FRONT-(front==1) or BACK-(front==0) copper (those with 0.3mm, those of 0.35mm are drilled on BACK)
+    globalpat *fa_*
+    puts "\[FLATCAM_AUTO] ENTRY: Drill_Shallow_Holes $holes_obj_name front=$front $filenum $toolname $mirror"
+    if {[IsLayerPresent $holes_obj_name]>0} {
+        set fname "FrontShallowDrills"
+        if {$front == 1} {
+        } else {
+            set fname "BackShallowDrills"
+        }
+
+        puts "+-->\[Drill_Shallow_Holes] processing $fname shallow holes ..."
+        drillcncjob $holes_obj_name -drilled_dias $fa_shallow_hole_diam_front -diatol 5 -drillz $fa_shallow_hole_depth -travelz 1 -feedrate_z 80 -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endz 30 -endxy 0,0 -pp $fa_preprocessor -outname "$fname\_cnc"
+        if {[IsLayerPresent "$fname\_cnc"]>0} {
+            puts "+-->\[Drill_Shallow_Holes] writing gcode to $fa_flatcam_output_path/$filenum\_$toolname\_$fname.nc ..."
+            write_gcode "$fname\_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$fname.nc"
+            puts "*===\[Drill_Shallow_Holes] done."
+            return 1
+        }
+    }
+    puts "*===\[Drill_Shallow_Holes] requested layer $holes_obj_name not found."
+    return 0
+}
+
+proc Drill_Holes {holes_obj_name filenum mirror} {
+# DRILL HOLES    
+    globalpat *fa_*
+    puts "\[FLATCAM_AUTO] ENTRY: Drill_Holes $holes_obj_name $filenum $mirror"
+    set files_written 0
+
+    if {[IsLayerPresent $holes_obj_name]>0} {
+
+        array set hole_dias {0 2.0 1 1.9 2 1.8 3 1.7 4 1.6 5 1.5 6 1.4 7 1.3 8 1.2 9 1.1 10 1.0 11 0.9 12 0.8 13 0.7 14 0.6 15 0.5 }
+        
+        foreach {key, dia} [array get hole_dias] {
+            # process holes with 
+            puts "\[Drill_Holes] Processing holes with $dia diameter..."
+        
+            drillcncjob $holes_obj_name -drilled_dias $dia -diatol 5 -drillz $fa_thruhole_z -travelz 1 -feedrate_z [expr {50+$dia*20}] -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -endz 30 -endxy 0,0 -pp $fa_preprocessor -outname "Holes_$dia\_mm_cnc"
+            if {[IsLayerPresent "Holes_$dia\_mm_cnc"]>0} {
+                set fname [ expr { $filenum + $files_written }]
+                puts "\[Drill_Holes] $files_written: Holes_$dia\_mm_cnc writing gcode to $fa_flatcam_output_path/$fname$mirror\_Holes_$dia\_mm.nc ..."
+                write_gcode "Holes_$dia\_mm_cnc" "$fa_flatcam_output_path/$fname$mirror\_Holes_$dia\_mm.nc"
+                incr $files_written
+            } else {
+                puts "\[Drill_Holes] No holes with $dia\mm found ..."
+            }
+        }
+    } else {
+        puts "*===\[Drill_Holes] requested layer $holes_obj_name not found."
+    }
+    return $files_written
+}
+
+# V-CARVE front cutout for better board edge quality, best use 90deg V-bit
+#           with panelization - layer passed must contain single cutout instance, properly mirrored
+#
+proc Carve_Cutout {layername filenum toolname mirror} {
+    globalpat *fa_*
+    
+    puts "\[FLATCAM_AUTO] ENTRY: Carve_Cutout $layername $filenum $toolname $mirror"
+
+    if {[IsLayerPresent CutOut]>0} {
+        if {[IsLayerPresent "$layername\Copper"]>0} { 
+            puts "+-->\[Carve_Cutout] performing geocutout on $layername ..."
+            geocutout "CutOut" -dia $fa_cutout_carve_path_width -gapsize 0 -gaps "none" -outname "$layername\CutOutCrv_geo"
+            set prefix ""
+            if {[IsPanelized]==1} {
+                set prefix "p"
+                #Panelized
+                puts "+-->\[Carve_Cutout] panelize $layername\_geo ..."
+                panelize "$layername\CutOutCrv_geo" -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "$prefix$layername\CutOutCrv_geo"
+            }
+            cncjob "$prefix$layername\CutOutCrv_geo" -dia $fa_cutout_carve_path_width -z_cut $fa_cutout_carve_z_cut -z_move 1 -feedrate $fa_cutout_feedrate_xy -feedrate_z $fa_cutout_feedrate_z -endxy 0,0 -endz 30 -pp $fa_preprocessor -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -outname "$prefix$layername\CutOutCrv_geo_cnc"
+            if {[IsLayerPresent "$prefix$layername\CutOutCrv_geo_cnc"]>0} {
+                puts "+-->\[Carve_Cutout] writing gcode to $fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername\CutOutCrv.nc ..."
+                write_gcode "$prefix$layername\CutOutCrv_geo_cnc" "$fa_flatcam_output_path/$filenum$mirror\_$toolname\_$layername\CutOutCrv.nc"
+                puts "*===\[Carve_Cutout] done."
+                return 1
+            }
+        }
+    }
+    puts "*===\[Carve_Cutout] requested layer CutOut not found."
+    return 0
+}
+
+#   proc Make_Cutout -  generate board cutout gcode
+#                       cutout layer must be properly mirrored prior calling this proc if necessary,
+#                       ie. if cnc-ed from back side
+#                       when panelized, cutout must be single, panelization is done for resulting geometry object, not gerber
+proc Make_Cutout {filenum toolname mirror } {
+    globalpat *fa_*
+
+    puts "\[FLATCAM_AUTO] ENTRY: Make_Cutout $filenum $toolname $mirror"
+
+    if {[IsLayerPresent CutOut]>0} {
+        if {$fa_add_cutout_offset == "Y"} {
+            set cutout_dia [ expr { $fa_cutout_tool_dia+$fa_cutout_carve_path_width/2 }]
+        } else {
+            set cutout_dia [ $fa_cutout_tool_dia ]
+        }
+
+        #geocutout doesn't work good with panelized cutout shape - have to geocutout first single shape, then panelize it and then cncjob...
+        puts "+-->\[Make_Cutout] performing geocutout on CutOut ..."
+        geocutout "CutOut" -dia $cutout_dia -gapsize 0 -gaps "none" -outname "CutOut_geo"
+        set prefix ""
+        if {[IsPanelized]==1} {
+            set prefix "p"
+            #Panelized
+            puts "+-->\[Make_Cutout] panelize CutOut_geo ..."
+            panelize "CutOut_geo" -box "CutOut" -spacing_columns $fa_panel_spacing_x -spacing_rows $fa_panel_spacing_y -columns $fa_panel_count_x -rows $fa_panel_count_y -outname "$prefix\CutOut_geo"
+        }    
+        puts "+-->\[Make_Cutout] performing cncjob on $prefix\CutOut_geo ..."
+        cncjob "$prefix\CutOut_geo" -dia $fa_cutout_tool_dia -z_cut $fa_cutout_z_cut -z_move 1 -feedrate $fa_cutout_feedrate_xy -feedrate_z $fa_cutout_feedrate_z -dpp $fa_cutout_cut_per_pass -endxy 0,0 -endz 30 -pp $fa_preprocessor -spindlespeed $fa_spindle_rpm -dwelltime $fa_spindle_dwell -outname "$prefix\CutOut_geo_cnc"
+        if {[IsLayerPresent "$prefix\CutOut_geo_cnc"]>0} {
+            puts "+-->\[Make_Cutout] write gcode to $fa_flatcam_output_path/${filenum}${mirror}_${toolname}_CutOut.nc ..."
+            write_gcode "$prefix\CutOut_geo_cnc" "$fa_flatcam_output_path/${filenum}${mirror}_${toolname}_CutOut.nc"
+            puts "*===\[Make_Cutout] done."
+            return 1
+        }
+    }
+    puts "*===\[Make_Cutout] requested layer CutOut not found."
+    return 0
+}
+
+
+
+# --------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
+proc Process_Two_Sided_Electroplated {} {
+    globalpat *fa_*
+
+        puts "\[FLATCAM_AUTO] Processing ELECTROPLATING VIAS MODE two sided board."
+
+        set filenum 1
+
+        # panelize CutOut    (here & now, for proper board mirroring)
+        set cutout_obj_name "CutOut"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "CutOut" "pCutOut" 
+            set cutout_obj_name "pCutOut"
+        }
+
+        # Start with drilling HOLES - panelize Holes
+        set holes_obj_name "Holes"
+        set mirrored_holes_obj_name "mHoles"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "Holes" "pHoles"
+            Panelize_Layer "mHoles" "pmHoles" 
+            set holes_obj_name "pHoles"
+            set mirrored_holes_obj_name "pmHoles"
+        }
+
+        # alignment holes
+        set filenum [ expr $filenum + [Create_Alignment_Holes $cutout_obj_name $filenum "1D7"] ]
+        # drill holes if any present
+        set filenum [ expr $filenum + [Drill_Holes $holes_obj_name $filenum ""] ] 
+
+        # now time for electroplating ...
+
+        # MOUNT BOARD FACING TOP LAYER using ALIGNMENT HOLES
+
+        # isolate front copper
+        set filenum [ expr $filenum + [Isolate_Copper "TopCopper" $filenum "45V" ""] ]
+        # paint front annotation layer
+        set filenum [ expr $filenum + [Paint_Annot_Layer "TopAnnot" $filenum "45V" ""] ]
+        # paint front NCC layer 
+        set filenum [ expr $filenum + [Paint_NCC_Layer "TopNCC" $filenum "1F5" ""] ]
+        # paint mask layer
+        set filenum [ expr $filenum + [Paint_Mask_Layer "TopMask" $holes_obj_name $filenum "FET_45V" ""] ]
+        # front shallow holes 
+        set filenum [ expr $filenum + [Drill_Shallow_Holes $holes_obj_name 1 $filenum "0D6" ""] ]
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Top" $filenum "90V" ""] ]
+
+        # TURN BOARD FACING BOTTOM LAYER using ALIGNMENT HOLES
+
+        # isolate back copper
+        set filenum [ expr $filenum + [Isolate_Copper "BottomCopper" $filenum "45V" "M"] ]
+        # paint front annotation layer
+        set filenum [ expr $filenum + [Paint_Annot_Layer "BottomAnnot" $filenum "45V" "M"] ]
+        # paint front NCC layer 
+        set filenum [ expr $filenum + [Paint_NCC_Layer "BottomNCC" $filenum "1F5" "M"] ]
+        # paint mask layer
+        set filenum [ expr $filenum + [Paint_Mask_Layer "BottomMask" $mirrored_holes_obj_name $filenum "FET_45V" "M"] ]
+        # back shallow holes 
+        set filenum [ expr $filenum + [Drill_Shallow_Holes $mirrored_holes_obj_name 0 $filenum "0D6" "M"] ]
+
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Bottom" $filenum "90V" "M"] ]
+
+        # cut the board/s
+        set filenum [ expr $filenum + [Make_Cutout $filenum "1F5" "M"] ]
+
+        set filenum [ expr $filenum + [Make_Stencil_Mask "TopMask" $holes_obj_name $filenum "30V" ""] ]
+
+        set filenum [ expr $filenum + [Make_Stencil_Mask "BottomMask" $mirrored_holes_obj_name $filenum "30V" "M"] ]
+
+}
+
+proc Process_Two_Sided {} {
+    globalpat *fa_*
+
+    if {$fa_electroplated_mode == "Y"} {
+        Process_Two_Sided_Electroplated
+    } 
+
+    if {$fa_electroplated_mode != "Y"} {
+        puts "\[FLATCAM_AUTO] Processing CLASSIC two sided board."
+        set filenum 1
+        # isolate front copper
+        set filenum [ expr $filenum + [Isolate_Copper "TopCopper" $filenum "45V" ""] ]
+        # paint front annotation layer
+        set filenum [ expr $filenum + [Paint_Annot_Layer "TopAnnot" $filenum "45V" ""] ]
+        # paint front NCC layer 
+        set filenum [ expr $filenum + [Paint_NCC_Layer "TopNCC" $filenum "1F5" ""] ]
+        # paint mask layer
+        set filenum [ expr $filenum + [Paint_Mask_Layer "TopMask" "" $filenum "FET_45V" ""] ]
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Top" $filenum "90V" ""] ]
+
+        # panelize CutOut
+        set cutout_obj_name "CutOut"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "CutOut" "pCutOut" 
+            set cutout_obj_name "pCutOut"
+        }
+        # panelize Holes
+        set holes_obj_name "Holes"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "Holes" "pHoles" 
+            set holes_obj_name "pHoles"
+        }
+
+        # alignment holes
+        set filenum [ expr $filenum + [Create_Alignment_Holes $cutout_obj_name $filenum "1D7"] ]
+        # front shallow holes 
+        set filenum [ expr $filenum + [Drill_Shallow_Holes $holes_obj_name 1 $filenum "0D6" ""] ]
+        # holes printed on front ? 
+        if {[IsLayerPresent Holes]>0} {
+            if {$fa_thruhole_mirrored != "Y"} {
+                set filenum [ expr $filenum + [Drill_Holes $holes_obj_name $filenum ""] ] 
+            }
+        }
+
+        # TURN BOARD ON THE BACK using ALIGNMENT HOLES
+
+        # isolate back copper
+        set filenum [ expr $filenum + [Isolate_Copper "BottomCopper" $filenum "45V" "M"] ]
+        # paint front annotation layer
+        set filenum [ expr $filenum + [Paint_Annot_Layer "BottomAnnot" $filenum "45V" "M"] ]
+        # paint front NCC layer 
+        set filenum [ expr $filenum + [Paint_NCC_Layer "BottomNCC" $filenum "1F5" "M"] ]
+        # paint mask layer
+        set filenum [ expr $filenum + [Paint_Mask_Layer "BottomMask" "" $filenum "FET_45V" "M"] ]
+
+        # drill holes on back (from largest bore to smallest - safer to probe Z=0)
+
+        # holes drilled on BACK ? then mirror holes excellon
+        if {[IsLayerPresent Holes]>0} {
+            if {$fa_thruhole_mirrored == "Y"} {
+                mirror $holes_obj_name -box $cutout_obj_name -axis $fa_mirror_axis
+                set filenum [ expr $filenum + [Drill_Holes $holes_obj_name $filenum "M"] ]
+                # back shallow holes 
+                set filenum [ expr $filenum + [Drill_Shallow_Holes $holes_obj_name 0 $filenum "0D6" "M"] ]
+            }
+        }
+
+        # mirror Cutout object before final carve & cut-out operation
+        mirror CutOut -box CutOut -axis $fa_mirror_axis
+
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Bottom" $filenum "90V" "M"] ]
+
+        # cut the board/s
+        set filenum [ expr $filenum + [Make_Cutout $filenum "1F5" "M"] ]
+
+        set filenum [ expr $filenum + [Make_Stencil_Mask "TopMask" $holes_obj_name $filenum "30V" ""] ]
+
+        set filenum [ expr $filenum + [Make_Stencil_Mask "BottomMask" $mirrored_holes_obj_name $filenum "30V" "M"] ]
+
+    }
+}
+
+proc Process_Single_Sided {} {
+    globalpat *fa_*
+
+    puts "\[FLATCAM_AUTO] Processing single sided board."
+    
+    set filenum 1
+    
+    if {[IsLayerPresent TopCopper]>0} {
+        # Process single board with Front side 
+
+        # isolate front copper
+        set filenum [ expr $filenum + [Isolate_Copper "TopCopper" $filenum "45V" ""] ]
+        # paint front annotation layer
+        set filenum [ expr $filenum + [Paint_Annot_Layer "TopAnnot" $filenum "45V" ""] ]
+        # paint front NCC layer 
+        set filenum [ expr $filenum + [Paint_NCC_Layer "TopNCC" $filenum "1F5" ""] ]
+        # paint mask layer
+        set filenum [ expr $filenum + [Paint_Mask_Layer "TopMask" "" $filenum "FET_45V" ""] ]
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Top" $filenum "90V" ""] ]
+
+        # panelize CutOut
+        set cutout_obj_name "CutOut"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "CutOut" "pCutOut" 
+            set cutout_obj_name "pCutOut"
+        }
+        # panelize Holes
+        set holes_obj_name "Holes"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "Holes" "pHoles" 
+            set holes_obj_name "pHoles"
+        }
+        # shallow holes 
+        set filenum [ expr $filenum + [Drill_Shallow_Holes $holes_obj_name 1 $filenum "0D6" ""] ]
+        # holes printed on front ? 
+        if {[IsLayerPresent Holes]>0} {
+            set filenum [ expr $filenum + [Drill_Holes $holes_obj_name $filenum ""] ] 
+        }
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Top" $filenum "90V" ""] ]
+        # cut the board/s
+        set filenum [ expr $filenum + [Make_Cutout $filenum "1F5" ""] ]
+
+        set filenum [ expr $filenum + [Make_Stencil_Mask "TopMask" $holes_obj_name $filenum "30V" ""] ]
+
+
+    }
+
+    if {[IsLayerPresent BottomCopper]>0} {
+        # Process single board with Back side 
+        
+        # isolate front copper
+        set filenum [ expr $filenum + [Isolate_Copper "BottomCopper" $filenum "45V" "M"] ]
+        # paint front annotation layer
+        set filenum [ expr $filenum + [Paint_Annot_Layer "BottomAnnot" $filenum "45V" "M"] ]
+        # paint front NCC layer 
+        set filenum [ expr $filenum + [Paint_NCC_Layer "BottomNCC" $filenum "1F5" "M"] ]
+        # paint mask layer
+        set filenum [ expr $filenum + [Paint_Mask_Layer "BottomMask" "" $filenum "FET_45V" "M"] ]
+
+        mirror CutOut -box CutOut -axis $fa_mirror_axis
+        mirror Holes -box CutOut -axis $fa_mirror_axis
+
+        # panelize CutOut
+        set cutout_obj_name "CutOut"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "CutOut" "pCutOut" 
+            set cutout_obj_name "pCutOut"
+        }
+        # panelize Holes
+        set holes_obj_name "Holes"
+        if {[IsPanelized]==1} {
+            Panelize_Layer "Holes" "pHoles" 
+            set holes_obj_name "pHoles"
+        }
+
+        # shallow holes 
+        set filenum [ expr $filenum + [Drill_Shallow_Holes $holes_obj_name 1 $filenum "0D6" "M"] ]
+        # holes printed on front ? 
+        if {[IsLayerPresent Holes]>0} {
+            set filenum [ expr $filenum + [Drill_Holes $holes_obj_name $filenum "M"] ] 
+        }
+        # carve cutout with 90V bit to soften board edges
+        set filenum [ expr $filenum + [Carve_Cutout "Bottom" $filenum "90V" "M"] ]
+
+        # cut the board/s
+        set filenum [ expr $filenum + [Make_Cutout $filenum "1F5" "M"] ]
+
+        set filenum [ expr $filenum + [Make_Stencil_Mask "BottomMask" $mirrored_holes_obj_name $filenum "30V" "M"] ]
+
+    }
+}
+
+proc Main {} {
+    globalpat *fa_*
+    # first : find out if we need to make 2 sided board 
+
+    set board_sides [ Get_board_sides ]
+
+    if {$board_sides == 2} {
+        puts "\[FLATCAM_AUTO] Detected two sided project."
+        Process_Two_Sided
+    }
+    if {$board_sides == 1} {
+        puts "\[FLATCAM_AUTO] Detected single sided project."
+        Process_Single_Sided
+    }
+    if {$board_sides < 1 } {
+        puts "\[FLATCAM_AUTO] ERROR: No PCB layers detected."
+        exit -1
+    }
+
+    puts "FINISHED! --------------------------------------------------------------------------------"
+    puts ""
+    puts "Bit tip: ${fa_vbit_tip}    angle: ${fa_vbit_angle}    z_cut: ${fa_track_z_cut}"
+    puts ""
+    puts "Effective isolation width: $fa_vbit_iso_width" 
+}
+
+Main 
+
+

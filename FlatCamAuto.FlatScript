@@ -28,7 +28,10 @@
 #  - 3. optional: cover front with UV-curable solder mask ink & cure (cover with thin foil, then glass to equalize UV ink layer thickness)
 #  - 4. optional: engrave with floating engraving tool your front mask, zero Z at Z=-0.5mm)
 #       (depth=-0.5mm), weakest spring load (CNCAid FET Tool holder)
-#  ? If single layer board - proceed to holes drilling
+# TO CHECK:
+#  - 4a. drill'n'mill holes from front - drilling from bottom after bottom processing can make copper tear off the board, esp. when mask applied
+#        start with biggest drill (easier to zero-probe)
+#
 #  - 5. drill 1.5mm alignment holes (to rotate board upside down and align proper x0y0 )
 # -  5b. with 90deg V-bit carve path of CutOut to make board edges looks sexier :)
 #  - 6. rotate board, align with pins, 
@@ -36,8 +39,8 @@
 #  - 8. optional: engrave back annotations (Eco2 layer)
 #  - 9. optional: cover back with UV mask ink & cure
 #  - 10. optional: engrave with FET back mask
-#  - 11. drill holes, start with biggest drill - harder to break when zeroing Z (probing)
-# -  12. with 90deg V-bit carve path of mirrored CutOut before actually cutting out board from plate
+# OR DRILL HERE, BUT HOW TO PROTECT TOP COPPER WHEN MILLING FROM BOTTOM ?
+#  - 12. with 90deg V-bit carve path of mirrored CutOut before actually cutting out board from plate
 #  - 13. cut edges with 1.5mm two-flute flathead or fishtail bit
 #  DONE.
 #
@@ -57,27 +60,27 @@
 # DEFINE PROJECT NAME AND PATH (without trailing slash) --------------------------------------------------------------------------------------------------------------------
 
 # << PROJECT NAME (DIRECTORY NAME) >>
-set kicad_name "mys_t3227_rfm69_4chsynclight_v2"
+set kicad_name $shellvar_0
 # set kicad_name "60mm_new_power_small"
 
 # << PROJECT PATH >>
-set kicad_path "/mnt/code/GoboHome"
+set kicad_path "/mnt/Gerbers"
 
 # << OUTPUT PATH, if empty - equals to PROJECT PATH, if doesn't exist - CREATE ONE >>
-set output_path "/mnt/Frezarra/"
+set output_path "/mnt/Frezarra"
 
 # good params : 
 # vbit 45/0.1 => z_cut=-0.08, iso_passes=2
 # vbit 60/0.1 => z_cut =-0.03, iso_passes=1
 
 # PROCESSING DETAILS
-set track_z_cut -0.04
+set track_z_cut -0.05
 set vbit_angle 60
 set vbit_tip 0.1
 set vbit_angle_rad [ expr { $vbit_angle/2 *3.14159/180 } ]
 set vbit_iso_width [ expr { $vbit_tip + -$track_z_cut * 2 * [ tcl::mathfunc::tan $vbit_angle_rad ] } ]
-set iso_passes 2
-set isolation_overlap 30
+set iso_passes 3
+set isolation_overlap 50
 set annot_z_cut -0.05
 set track_xy_feed 400
 set z_feedrate 160	
@@ -85,7 +88,10 @@ set mirror_axis "Y"
 set shallow_hole_diam_front 0.3
 set shallow_hole_diam_back 0.35
 set shallow_hole_depth -0.5
+#how deep drill the hole
 set thruhole_z -2.0	
+#make holes mirrored (drilled from backside) or not?
+set thruhole_mirrored "Y"
 
 set ncc_tool_dia 1.5
 set ncc_z_cut -0.3
@@ -256,7 +262,9 @@ if {[lsearch [get_names] BackNCC]>=0} {
 
 #5. MIRROR HOLES, DRILL 1.0mm then 0.6mm then SHALLOW 0.6mm on BACK (coded as 0.35mm)
 if {[lsearch [get_names] Holes]>=0} {
-    mirror "Holes" -box "CutOut" -axis $mirror_axis
+    if {$thruhole_mirrored == "Y"} {
+        mirror "Holes" -box "CutOut" -axis $mirror_axis
+    }
 }
 
 #5a. V-CARVE front cutout for better board edge quality, best use 90deg V-bit
