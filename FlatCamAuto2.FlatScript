@@ -101,18 +101,40 @@ set fa_output_path "/mnt/Frezarra"
 # good params : 
 # vbit 45/0.1 => z_cut=-0.07, fa_iso_passes=2
 # vbit 60/0.1 => z_cut =-0.03, fa_iso_passes=1
+# vbit spiral diamond NLJ3.6001 -> zcut=-0.06, iso_pass = 2, overlap = 50 - not really good
+# vbit trihedral 3754 60 deg 0.1 tip -> zc=-0.06, iso_pass=3, overlap = 70 - better
+#                3754 60 deg 0.1 tip -> zc=-0.05, iso_pass=4, overlap = 80 - better
+#                3754 60 deg 0.1 tip -> zc=-0.05, iso_pass=4, overlap = 70 - best
+
+# single isolation approach:
+# vbit trihedral 45 deg 0.1 tip, zcut = -0.1, (iso_width = 0.18mm) iso_pass=1, overlap = n.i. - nope
+#                                zcut = -0.13 iso_pass=1, overlap = n.i. - nope, failure
+#                                zcut = -0.1, iso_pass=2, overlap = 35 - better, small residual along the tracks, no shorts
+#                                zcut = -0.13 iso_pass=2, overlap = 20 - nope
+
+# vbit NLJ3.4502 45 deg 0.2 tip, but set vbit_tip 0.1, zcut=-0.1, isopass=1 - very good with fill clearance 0.25, little too deep
+# vbit NLJ3.4502 45 deg 0.2 tip, but set vbit_tip 0.2, zcut=-0.09, isopass=1 - no isolation gcode
+# vbit NLJ3.4502 45 deg 0.2 tip, but set vbit_tip 0.14, zcut=-0.07, isopass=1 - very good result
+# vbit NLJ3.4502 45 deg 0.2 tip, but set vbit_tip 0.12, zcut=-0.07, isopass=1 - very good result, still a bit too deep
+# vbit NLJ3.4502 45 deg 0.2 tip, but set vbit_tip 0.14, zcut=-0.06, isopass=1 - clearance down to 0.2 and chamfer fills ?
+
+# 17.12.2023 - You have to use NCC for isolation... then all things will be much easier, duh...
+#            - params for NLJ3.6001 - vbit_tip 0.14, zcut -0.04, margin 0.2, speed_xy 500 speed_z 200 travel_z=1
 
 
 # PROCESSING DETAILS
-set fa_track_z_cut -0.03
-set fa_vbit_angle 60
-set fa_vbit_tip 0.1
-set fa_iso_passes 2
-set fa_isolation_overlap 75
-set fa_annot_z_cut -0.05
+set fa_track_z_cut -0.04
+set fa_vbit_angle 45
+set fa_vbit_tip 0.12
+set fa_iso_passes 1
+set fa_isolation_overlap 0
+set fa_annot_z_cut -0.04
 
+# VBit tip angle in radians
 set fa_vbit_angle_rad [ expr { $fa_vbit_angle/2 *3.14159/180 } ]
+# calculate iso_width with given vbit tip width, z_cut depth and vbit angle 
 set fa_vbit_iso_width [ expr { $fa_vbit_tip + -$fa_track_z_cut * 2 * [ tcl::mathfunc::tan $fa_vbit_angle_rad ] } ]
+
 set fa_track_xy_feed 400
 set fa_z_feedrate 160	
 set fa_mirror_axis "X"
@@ -120,13 +142,13 @@ set fa_shallow_hole_diam_front 0.3
 set fa_shallow_hole_diam_back 0.35
 set fa_shallow_hole_depth -0.5
 #how deep drill the hole
-set fa_thruhole_z -2.0	
+set fa_thruhole_z -2.5	
 #make holes mirrored (drilled from backside) or not?
 set fa_thruhole_mirrored "Y"
 set fa_preprocessor "GRBL_11"
 
 set fa_ncc_tool_dia 1.5
-set fa_ncc_z_cut -0.3
+set fa_ncc_z_cut -0.1
 set fa_ncc_xy_feed 300
 set fa_ncc_z_feed 160
 
@@ -146,10 +168,10 @@ set fa_cutout_carve_path_width [ expr { $fa_cutout_carve_fa_vbit_tip + -$fa_cuto
 
 set fa_align_holes_depth -8
 set fa_align_holes_dia 1.7
-set fa_align_holes_offset 3
+set fa_align_holes_offset 5
 
-set fa_spindle_rpm 1000
-set fa_spindle_dwell 2
+set fa_spindle_rpm 24000
+set fa_spindle_dwell 10
 
 set fa_mask_xy_feed 600
 set fa_mask_z_feed 250
@@ -541,6 +563,8 @@ proc Drill_Holes {holes_obj_name filenum mirror} {
     } else {
         puts "*===\[Drill_Holes] requested layer $holes_obj_name not found."
     }
+
+    puts "\[Drill_Holes] $files_written files written."
     return $files_written
 }
 
