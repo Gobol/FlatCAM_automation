@@ -1,6 +1,10 @@
 # FlatCAM_automation
 
-FlatCAM process TCL automation script - automate KiCAD gerber processing into GCODE files for CNC PCB milling.
+## FlatCAM process TCL automation script - automate KiCAD gerber processing into GCODE files for CNC PCB milling.
+
+FlatCAM version required: https://bitbucket.org/marius_stanciu/flatcam_beta/src/Beta/
++ overwrite TclCommandAlignDrill.py with the included file in this repo
+
 
 # Structural convention - using default KiCAD naming setup : 
 
